@@ -39,6 +39,7 @@ SRCS += $(addprefix img/,   \
 	blob.c                  \
 	clahe.c                 \
 	draw.c                  \
+	ttf.c                   \
 	qrcode.c                \
 	apriltag.c              \
 	dmtx.c                  \

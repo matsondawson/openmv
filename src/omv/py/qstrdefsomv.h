@@ -517,6 +517,7 @@ Q(draw_ellipse)
 
 // Draw String
 Q(draw_string)
+Q(draw_ttf)
 // duplicate Q(color)
 // duplicate Q(scale)
 Q(x_spacing)
