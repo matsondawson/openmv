@@ -1329,13 +1329,34 @@ int ttf_table_cmap_char_to_index(truetypefont_t* ttf, uint16_t charCode) {
     return 0;
 }
 
+/**
+ *             mapCode(charCode) {
+                var index = 0;
+                for (var i = 0; i < this.cmaps.length; i++) {
+                    var cmap = this.cmaps[i];
+                    index = cmap.map(charCode);
+                    if (index) {
+                        break;
+                    }
+                }
+                return index;
+            }*/
+
+
 typedef struct {
     float x;
     int8_t d;
 } ttf_xlist;
 
-void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uint32_t location_x, uint32_t location_y, float size_pixels, uint32_t offset_x, uint32_t offset_y) {
-    float size = size_pixels / __REV16(ttf->head->unitsPerEm);
+void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x, int32_t offset_y) {
+    uint16_t units_per_em = __REV16(ttf->head->unitsPerEm);
+    offset_y += units_per_em;
+    float pixels_per_em = size_pixels / units_per_em;
+    offset_x *= pixels_per_em; // Convert offset to pixels
+    offset_y *= pixels_per_em;
+    offset_x += location_x;
+    offset_y += location_y;
+    
     
     const ttf_table_glyf *glyf = truetypefont_get_glyph_ptr(ttf, glyph_index);
     
@@ -1347,19 +1368,29 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uin
     ttf_glyph_data glyph_data;
     truetypefont_read_glyph(ttf, &glyph_data, glyph_index);
     // printf("numberOfContours %lu\n", __REV16(glyf->numberOfContours));
-    int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * size);
-    int32_t xMax = floorf(((int16_t)__REV16(glyf->xMax)) * size);
-    int32_t yMin = floorf(((int16_t)__REV16(glyf->yMin)) * size);
-    int32_t yMax = floorf(((int16_t)__REV16(glyf->yMax)) * size);
+    int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * pixels_per_em);
+    int32_t xMax = floorf(((int16_t)__REV16(glyf->xMax)) * pixels_per_em);
+    int32_t yMin = floorf(((int16_t)__REV16(glyf->yMin)) * pixels_per_em);
+    int32_t yMax = floorf(((int16_t)__REV16(glyf->yMax)) * pixels_per_em);
     
     //printf("xMin=%lu xMax=%lu yMin=%lu yMax=%lu\n", xMin, xMax, yMin, yMax);
     
     for (int i = 0; i < glyph_data.numPoints; i++) {
-        glyph_data.coordinates[i].x *= size;
-        glyph_data.coordinates[i].y *= size;
+        glyph_data.coordinates[i].x *= pixels_per_em;
+        glyph_data.coordinates[i].y *= pixels_per_em;
         //printf("point (%f,%f)\n", glyph_data.coordinates[i].x, glyph_data.coordinates[i].y);
     }
-    //printf("Rendering yMin=%lu yMax=%lu\n",yMin,yMax);
+
+    // offset_y - yy should not be less than 0, so yy should be greater than offset_y
+    // offset_y - yMax
+    // printf("Rendering yMin=%lu yMax=%lu\n",yMin,yMax);
+    // IM_MIN(yMax, offset_y)
+    if (yMax > offset_y) {
+        yMax = offset_y;
+    }
+    if (offset_y - yMin >= img->h) {
+        yMin = (offset_y - yMin - img->h + 1);
+    }
     for (int yy = yMin; yy <= yMax ; yy++) {
         ttf_point *last_point = NULL;
         ttf_xlist xlist[64];
@@ -1439,12 +1470,6 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uin
         printf("\n");
         */
         
-        offset_x *= size; // Convert offset to pixels
-        offset_y *= size;
-        offset_x += location_x;
-        offset_y += location_y;
-        offset_y += (int32_t)size_pixels;
-        
         int inside = 0, xlist_i = 0;
         for (int xx = xMin; xx <= xMax; xx++) {
             //printf("xx %d",xlist[xlist_i].x);
@@ -1502,37 +1527,6 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uin
                 }
             }
         }
-
-        /*int inside = 0, xlist_i = 0;
-        for (int xx = xMin; xx <= xMax; xx++) {
-            float last_x_intercept = -100000;
-            while (xlist_i != xlist_count && xx >= floorf(xlist[xlist_i].x)) {
-                if (last_x_intercept != xlist[xlist_i].x) {
-                    inside += xlist[xlist_i].d;
-                    last_x_intercept = xlist[xlist_i].x;
-                }
-                xlist_i++;
-            }
-            if (inside<0) {
-                switch(img->bpp) {
-                    case IMAGE_BPP_BINARY: {
-                        IMAGE_PUT_BINARY_PIXEL(img, offset_x + xx, offset_y - yy, 1);
-                        break;
-                    }
-                    case IMAGE_BPP_GRAYSCALE: {
-                        IMAGE_PUT_GRAYSCALE_PIXEL(img, offset_x + xx, offset_y - yy, 255);
-                        break;
-                    }
-                    case IMAGE_BPP_RGB565: {
-                        IMAGE_PUT_RGB565_PIXEL(img, offset_x + xx, offset_y - yy, 65535);
-                        break;
-                    }
-                    default: {
-                        break;
-                    }
-                }
-            }
-        }*/
     }
 }
 
@@ -1541,14 +1535,22 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, int x_o
     truetypefont_construct(&ttf, font);
 
     int len = strlen(text);
-    int x = 0;
+    int x = 0, y = 0;
     for(int i=0; i<len; i++) {
-        int glyph_index = ttf_table_cmap_char_to_index(&ttf, ((uint16_t)text[i]) & 255);
+        char ch = text[i];
+        if (ch=='\n') {
+            x = 0;
+            y += __REV16(ttf.head->unitsPerEm);
+        }
+        else {
+            int glyph_index = ttf_table_cmap_char_to_index(&ttf, ((uint16_t)ch) & 255);
 
-        longHorMetric metrics = truetypefont_get_horizontal_metrics(&ttf, glyph_index);
-        // printf("Metrics kern: glyph_index=%u advanceWidth=%lu leftSideBearing=%u\n", glyph_index, __REV16(metrics.advanceWidth), (int16_t)__REV16(metrics.leftSideBearing));
-        
-        ttf_draw_glyph(&ttf, img, glyph_index, x_off, y_off, scale, x, 0);
-        x += __REV16(metrics.advanceWidth);
+            longHorMetric metrics = truetypefont_get_horizontal_metrics(&ttf, glyph_index);
+            // printf("Metrics kern: glyph_index=%u advanceWidth=%lu leftSideBearing=%u\n", glyph_index, __REV16(metrics.advanceWidth), (int16_t)__REV16(metrics.leftSideBearing));
+            
+            // TODO ttf_draw_glyph returns width of glyph and the x advance makes sure it's at least one pixel.
+            ttf_draw_glyph(&ttf, img, glyph_index, x_off, y_off, scale, x, y);
+            x += __REV16(metrics.advanceWidth);
+        }
     }
 }
