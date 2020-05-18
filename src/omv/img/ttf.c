@@ -1170,26 +1170,24 @@ bool truetypefont_read_glyph(truetypefont_t* ttf, ttf_glyph_data *glyph_data, ui
         const int /*ON_CURVE = 1,*/ X_IS_BYTE = 2, Y_IS_BYTE = 4, REPEAT = 8, X_DELTA = 16, Y_DELTA = 32;
 
         int i=0;
-        for (int point = 0; i < numPoints; i++) {
-            uint8_t flag = flags[i];
+        for (int point = 0; point < numPoints;) {
+            uint8_t flag = flags[i++];
             glyph_data->coordinates[point].x = 0;
             glyph_data->coordinates[point].y = 0;
-            glyph_data->coordinates[point].flags  = flag;
-            point++;
+            glyph_data->coordinates[point++].flags  = flag;
 
             if (flag & REPEAT) {
-                int repeatCount = flags[i+1];
+                int repeatCount = flags[i++];
                 // assert(repeatCount > 0);
-                i += repeatCount;
                 while (repeatCount--) {
                     glyph_data->coordinates[point].x = 0;
                     glyph_data->coordinates[point].y = 0;
-                    glyph_data->coordinates[point].flags  = flag;
-                    point++;
+                    glyph_data->coordinates[point++].flags  = flag;
                 }
             }
         }
         uint8_t *coordinates = ((void*)flags) + i;
+
         //for(int i=0; i<16; i++) printf(">i %lu\n", *(coordinates+i));
         {
             int16_t value = 0;
@@ -1331,31 +1329,13 @@ int ttf_table_cmap_char_to_index(truetypefont_t* ttf, uint16_t charCode) {
     return 0;
 }
 
-/**
- *             mapCode(charCode) {
-                var index = 0;
-                for (var i = 0; i < this.cmaps.length; i++) {
-                    var cmap = this.cmaps[i];
-                    index = cmap.map(charCode);
-                    if (index) {
-                        break;
-                    }
-                }
-                return index;
-            }*/
-
-
 typedef struct {
     float x;
     int8_t d;
 } ttf_xlist;
 
-void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uint32_t location_x, uint32_t location_y, float size, uint32_t offset_x, uint32_t offset_y) {
-    size = size / __REV16(ttf->head->unitsPerEm);
-    offset_x *= size;
-    offset_y *= size;
-    offset_x += location_x;
-    offset_y += location_y;
+void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uint32_t location_x, uint32_t location_y, float size_pixels, uint32_t offset_x, uint32_t offset_y) {
+    float size = size_pixels / __REV16(ttf->head->unitsPerEm);
     
     const ttf_table_glyf *glyf = truetypefont_get_glyph_ptr(ttf, glyph_index);
     
@@ -1459,6 +1439,12 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uin
         printf("\n");
         */
         
+        offset_x *= size; // Convert offset to pixels
+        offset_y *= size;
+        offset_x += location_x;
+        offset_y += location_y;
+        offset_y += (int32_t)size_pixels;
+        
         int inside = 0, xlist_i = 0;
         for (int xx = xMin; xx <= xMax; xx++) {
             //printf("xx %d",xlist[xlist_i].x);
@@ -1489,17 +1475,25 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uin
                 uint32_t alpha = delta_sum * 255;
                 switch(img->bpp) {
                     case IMAGE_BPP_BINARY: {
-                        IMAGE_PUT_BINARY_PIXEL(img, offset_x + xx, offset_y - yy, alpha>>7);
+                        IMAGE_PUT_BINARY_PIXEL(img, offset_x + xx, offset_y - yy, alpha >> 7);
                         break;
                     }
                     case IMAGE_BPP_GRAYSCALE: {
                         uint32_t img_pixel = IMAGE_GET_GRAYSCALE_PIXEL(img, offset_x + xx, offset_y - yy);
 
-                        IMAGE_PUT_GRAYSCALE_PIXEL(img, offset_x + xx, offset_y - yy, ((img_pixel * (255 - alpha))>>8) + alpha );
+                        IMAGE_PUT_GRAYSCALE_PIXEL(img, offset_x + xx, offset_y - yy, ((img_pixel * (256 - alpha))>>8) + alpha );
                         break;
                     }
                     case IMAGE_BPP_RGB565: {
-                        IMAGE_PUT_RGB565_PIXEL(img, offset_x + xx, offset_y - yy, alpha);
+                        uint32_t img_pixel = IMAGE_GET_RGB565_PIXEL(img, offset_x + xx, offset_y - yy);
+                        uint32_t vr = COLOR_RGB565_TO_R5(img_pixel);
+                        uint32_t vg = COLOR_RGB565_TO_G6(img_pixel);
+                        uint32_t vb = COLOR_RGB565_TO_B5(img_pixel);
+                        vr = (vr * (256 - alpha) >> 8) + (alpha >> 3);
+                        vg = (vg * (256 - alpha) >> 8) + (alpha >> 2);
+                        vb = (vb * (256 - alpha) >> 8) + (alpha >> 3);
+
+                        IMAGE_PUT_RGB565_PIXEL(img, offset_x + xx, offset_y - yy, COLOR_R5_G6_B5_TO_RGB565(vr, vg, vb));
                         break;
                     }
                     default: {
