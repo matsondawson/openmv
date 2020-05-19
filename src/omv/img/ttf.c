@@ -1385,7 +1385,7 @@ float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, ui
     }
 
     if (offset_y_pixels - yMin >= img->h) {
-        yMin = (offset_y_pixels - yMin - img->h + 1);
+        yMin = (offset_y_pixels - img->h + 1);
     }
 
     for (int yy = yMin; yy <= yMax ; yy++) {
@@ -1469,15 +1469,16 @@ float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, ui
         
         int inside = 0, xlist_i = 0;
         for (int xx = xMin; xx <= xMax; xx++) {
-            float last_x_intercept = -100000;
+            float last_x_intercept = -100000, last_d = 0;
             float delta_sum = 0;
             while (xlist_i != xlist_count && xx >= floorf(xlist[xlist_i].x)) {
-                if (last_x_intercept != xlist[xlist_i].x) {
+                if (last_x_intercept != xlist[xlist_i].x && last_d != xlist[xlist_i].d) {
                     if (inside < 0) {
                         delta_sum += (xlist[xlist_i].x - ((last_x_intercept == -100000) ? xx : last_x_intercept));
                     }
                     inside += xlist[xlist_i].d;
                     last_x_intercept = xlist[xlist_i].x;
+                    last_d = xlist[xlist_i].d;
                 }
                 xlist_i++;
             }
