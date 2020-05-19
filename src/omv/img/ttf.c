@@ -1049,7 +1049,7 @@ const void* truetypefont_find_table(truetypefont_t* ttf, char *tag) {
     return NULL;
 }
 
-void truetypefont_construct(truetypefont_t* ttf, const uint8_t *data) {
+void truetypefont_init(truetypefont_t* ttf, const uint8_t *data) {
     ttf->data = data;
     ttf->head = truetypefont_find_table(ttf, "head");
     PY_ASSERT_TRUE_MSG(ttf->head != NULL, "No head table");
@@ -1309,88 +1309,85 @@ int ttf_table_cmap_char_to_index(truetypefont_t* ttf, uint16_t charCode) {
     
                         return index;
                     }
-    
-                    /*// offset in bytes to glyph indexArray, or 0
-                    for (i = 0; i < segCount; i++) {
-                        var ro = file.getUint16();
-                        if (ro) {
-                            segments[i].idRangeOffset = file.tell() - 2 + ro;
-                        } else {
-                            segments[i].idRangeOffset = 0;
-                        }
-                    }*/
                 }
             }
-            // else ? TODO
-            
         }
+        // else ? TODO Error unknown format
     }
     
     return 0;
 }
-
-/**
- *             mapCode(charCode) {
-                var index = 0;
-                for (var i = 0; i < this.cmaps.length; i++) {
-                    var cmap = this.cmaps[i];
-                    index = cmap.map(charCode);
-                    if (index) {
-                        break;
-                    }
-                }
-                return index;
-            }*/
-
 
 typedef struct {
     float x;
     int8_t d;
 } ttf_xlist;
 
-void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x, int32_t offset_y) {
-    uint16_t units_per_em = __REV16(ttf->head->unitsPerEm);
-    offset_y += units_per_em;
-    float pixels_per_em = size_pixels / units_per_em;
-    offset_x *= pixels_per_em; // Convert offset to pixels
-    offset_y *= pixels_per_em;
-    offset_x += location_x;
-    offset_y += location_y;
-    
-    
+float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
     const ttf_table_glyf *glyf = truetypefont_get_glyph_ptr(ttf, glyph_index);
     
     if (!glyf) {
         // glyph not found, probably space character
-        return;
+        return 0;
     }
+
+    uint32_t fr = 0, fg = 0, fb = 0;
+    switch(img->bpp) {
+        case IMAGE_BPP_BINARY: {
+            color &= 255;
+            break;
+        }
+        case IMAGE_BPP_GRAYSCALE: {
+            color &= 255;
+            break;
+        }
+        case IMAGE_BPP_RGB565: {
+            color &= 65535;
+            fr = COLOR_RGB565_TO_R5(color);
+            fg = COLOR_RGB565_TO_G6(color);
+            fb = COLOR_RGB565_TO_B5(color);
+            break;
+        }
+    }
+
+    uint16_t units_per_em = __REV16(ttf->head->unitsPerEm);
+
+    // Y-coordinate is inverted so we draw from the bottom up, hence we move offset down one line
+    offset_y_units += units_per_em;
+
+    float pixels_per_unit = size_pixels / units_per_em;
+
+    int32_t offset_x_pixels = location_x + offset_x_units * pixels_per_unit; // Convert offset to pixels
+    int32_t offset_y_pixels = location_y + offset_y_units * pixels_per_unit;
     
     ttf_glyph_data glyph_data;
     truetypefont_read_glyph(ttf, &glyph_data, glyph_index);
     // printf("numberOfContours %lu\n", __REV16(glyf->numberOfContours));
-    int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * pixels_per_em);
-    int32_t xMax = floorf(((int16_t)__REV16(glyf->xMax)) * pixels_per_em);
-    int32_t yMin = floorf(((int16_t)__REV16(glyf->yMin)) * pixels_per_em);
-    int32_t yMax = floorf(((int16_t)__REV16(glyf->yMax)) * pixels_per_em);
+    int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * pixels_per_unit);
+    int32_t xMax = floorf(((int16_t)__REV16(glyf->xMax)) * pixels_per_unit);
+    int32_t yMin = floorf(((int16_t)__REV16(glyf->yMin)) * pixels_per_unit);
+    int32_t yMax = floorf(((int16_t)__REV16(glyf->yMax)) * pixels_per_unit);
     
     //printf("xMin=%lu xMax=%lu yMin=%lu yMax=%lu\n", xMin, xMax, yMin, yMax);
     
     for (int i = 0; i < glyph_data.numPoints; i++) {
-        glyph_data.coordinates[i].x *= pixels_per_em;
-        glyph_data.coordinates[i].y *= pixels_per_em;
+        glyph_data.coordinates[i].x *= pixels_per_unit;
+        glyph_data.coordinates[i].y *= pixels_per_unit;
         //printf("point (%f,%f)\n", glyph_data.coordinates[i].x, glyph_data.coordinates[i].y);
     }
 
     // offset_y - yy should not be less than 0, so yy should be greater than offset_y
     // offset_y - yMax
     // printf("Rendering yMin=%lu yMax=%lu\n",yMin,yMax);
-    // IM_MIN(yMax, offset_y)
-    if (yMax > offset_y) {
-        yMax = offset_y;
+
+    if (yMax > offset_y_pixels) {
+        yMax = offset_y_pixels;
     }
-    if (offset_y - yMin >= img->h) {
-        yMin = (offset_y - yMin - img->h + 1);
+
+    if (offset_y_pixels - yMin >= img->h) {
+        yMin = (offset_y_pixels - yMin - img->h + 1);
     }
+
     for (int yy = yMin; yy <= yMax ; yy++) {
         ttf_point *last_point = NULL;
         ttf_xlist xlist[64];
@@ -1423,7 +1420,7 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, int
                 point = first_point;
                 
                 // compare segment
-                float y1 = last_point->y, y2 = point->y;
+                float y1 = last_point->y, y2 = point->y;                
                 bool possible = (yy >= y1 && yy < y2) || (yy < y1 && yy >= y2);
                 //console.log(">>> y",yy,y1,y2,"p",possible,{...last_point},{...point});
                 if (possible) {
@@ -1437,7 +1434,7 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, int
                         xlist[xlist_count++].d = (y1>y2)?1:-1;
                     }
                 }
-                
+
                 last_point = first_point = NULL;
                 c++;
             }
@@ -1472,13 +1469,11 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, int
         
         int inside = 0, xlist_i = 0;
         for (int xx = xMin; xx <= xMax; xx++) {
-            //printf("xx %d",xlist[xlist_i].x);
             float last_x_intercept = -100000;
             float delta_sum = 0;
             while (xlist_i != xlist_count && xx >= floorf(xlist[xlist_i].x)) {
                 if (last_x_intercept != xlist[xlist_i].x) {
                     if (inside < 0) {
-                        //printf("delta_sum %f - %f\n", xlist[xlist_i].x, last_x_intercept);
                         delta_sum += (xlist[xlist_i].x - ((last_x_intercept == -100000) ? xx : last_x_intercept));
                     }
                     inside += xlist[xlist_i].d;
@@ -1486,6 +1481,7 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, int
                 }
                 xlist_i++;
             }
+
             // 0 or 1 intercepts
             if (last_x_intercept==-100000) {
                 delta_sum = (inside < 0) ? 1 : 0;
@@ -1495,62 +1491,76 @@ void ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, int
                     delta_sum += ((float)xx + 1.0f - last_x_intercept);
                 }
             }
-            //if (delta_sum!=0) printf("delta_sum %f\n", delta_sum);
+
+            int32_t x_pixel = offset_x_pixels + xx;
+            int32_t y_pixel = offset_y_pixels - yy;
+
             if (delta_sum!=0) {
                 uint32_t alpha = delta_sum * 255;
+
                 switch(img->bpp) {
                     case IMAGE_BPP_BINARY: {
-                        IMAGE_PUT_BINARY_PIXEL(img, offset_x + xx, offset_y - yy, alpha >> 7);
+                        IMAGE_PUT_BINARY_PIXEL(img, x_pixel, y_pixel, alpha >> 7);
                         break;
                     }
                     case IMAGE_BPP_GRAYSCALE: {
-                        uint32_t img_pixel = IMAGE_GET_GRAYSCALE_PIXEL(img, offset_x + xx, offset_y - yy);
+                        uint32_t img_pixel = IMAGE_GET_GRAYSCALE_PIXEL(img, x_pixel, y_pixel);
 
-                        IMAGE_PUT_GRAYSCALE_PIXEL(img, offset_x + xx, offset_y - yy, ((img_pixel * (256 - alpha))>>8) + alpha );
+                        IMAGE_PUT_GRAYSCALE_PIXEL(img, x_pixel, y_pixel, ((img_pixel * (256 - alpha))>>8) + alpha );
                         break;
                     }
                     case IMAGE_BPP_RGB565: {
-                        uint32_t img_pixel = IMAGE_GET_RGB565_PIXEL(img, offset_x + xx, offset_y - yy);
+                        uint32_t img_pixel = IMAGE_GET_RGB565_PIXEL(img, x_pixel, y_pixel);
                         uint32_t vr = COLOR_RGB565_TO_R5(img_pixel);
                         uint32_t vg = COLOR_RGB565_TO_G6(img_pixel);
                         uint32_t vb = COLOR_RGB565_TO_B5(img_pixel);
-                        vr = (vr * (256 - alpha) >> 8) + (alpha >> 3);
-                        vg = (vg * (256 - alpha) >> 8) + (alpha >> 2);
-                        vb = (vb * (256 - alpha) >> 8) + (alpha >> 3);
+                        vr = ((vr * (256 - alpha)) + (fr * alpha)) >> 8;
+                        vg = ((vg * (256 - alpha)) + (fg * alpha)) >> 8;
+                        vb = ((vb * (256 - alpha)) + (fb * alpha)) >> 8;
 
-                        IMAGE_PUT_RGB565_PIXEL(img, offset_x + xx, offset_y - yy, COLOR_R5_G6_B5_TO_RGB565(vr, vg, vb));
-                        break;
-                    }
-                    default: {
+                        IMAGE_PUT_RGB565_PIXEL(img, x_pixel, y_pixel, COLOR_R5_G6_B5_TO_RGB565(vr, vg, vb));
                         break;
                     }
                 }
             }
         }
     }
+
+    return xMax - xMin + 1;
 }
 
-void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, int x_off, int y_off, float scale) {
+void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels) {
     truetypefont_t ttf;
-    truetypefont_construct(&ttf, font);
+    truetypefont_init(&ttf, font);
 
     int len = strlen(text);
-    int x = 0, y = 0;
-    for(int i=0; i<len; i++) {
+    int x_units = 0, y_units = 0;
+    uint16_t units_per_em = __REV16(ttf.head->unitsPerEm);
+    float pixels_per_unit = size_pixels / units_per_em;
+
+    for(int i=0; i < len; i++) {
         char ch = text[i];
         if (ch=='\n') {
-            x = 0;
-            y += __REV16(ttf.head->unitsPerEm);
+            x_units = 0;
+            y_units += units_per_em;
         }
         else {
             int glyph_index = ttf_table_cmap_char_to_index(&ttf, ((uint16_t)ch) & 255);
 
             longHorMetric metrics = truetypefont_get_horizontal_metrics(&ttf, glyph_index);
-            // printf("Metrics kern: glyph_index=%u advanceWidth=%lu leftSideBearing=%u\n", glyph_index, __REV16(metrics.advanceWidth), (int16_t)__REV16(metrics.leftSideBearing));
             
-            // TODO ttf_draw_glyph returns width of glyph and the x advance makes sure it's at least one pixel.
-            ttf_draw_glyph(&ttf, img, glyph_index, x_off, y_off, scale, x, y);
-            x += __REV16(metrics.advanceWidth);
+            // TODO render horizontally and vertically?
+            // TODO grid fit
+            int32_t glyph_width_pixels = ttf_draw_glyph(&ttf, img, glyph_index, color, x_off, y_off, size_pixels, x_units, y_units);
+
+            // Ensure at least one pixel gap between glyphs
+            int32_t advance_width_units = __REV16(metrics.advanceWidth);
+            int32_t advance_width_pixels = advance_width_units * pixels_per_unit;
+            if (advance_width_pixels <= glyph_width_pixels) {
+                advance_width_pixels++;
+                advance_width_units = advance_width_pixels / pixels_per_unit;
+            }
+            x_units += advance_width_units;
         }
     }
 }

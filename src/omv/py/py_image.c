@@ -1827,11 +1827,13 @@ STATIC mp_obj_t py_image_draw_ttf(uint n_args, const mp_obj_t *args, mp_map_t *k
     int arg_y_off = mp_obj_get_int(arg_vec[1]);
     const char *arg_str = mp_obj_str_get_str(arg_vec[2]);
 
+    uint32_t arg_color =
+        py_helper_keyword_color(arg_img, n_args, args, offset + 0, kw_args, -1); // White.
     float arg_scale =
         py_helper_keyword_float(n_args, args, offset + 1, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_scale), 1.0);
     PY_ASSERT_TRUE_MSG(0 < arg_scale, "Error: 0 < scale!");
 
-    image_draw_ttf(arg_img, font_data, arg_str, arg_x_off, arg_y_off, arg_scale);
+    image_draw_ttf(arg_img, font_data, arg_str, arg_color, arg_x_off, arg_y_off, arg_scale);
 
     return args[0];
 }
