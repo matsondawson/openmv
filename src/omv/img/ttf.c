@@ -1137,26 +1137,22 @@ bool truetypefont_read_glyph(truetypefont_t* ttf, ttf_glyph_data *glyph_data, ui
     }
     
     if (!glyph->numberOfContours) {
-    //    printf("no contours");
         return false;
     }
 
     glyph_data->endPtsOfContours = (void*)glyph + sizeof(ttf_table_glyf);
     
     uint16_t numberOfContours = __REV16(glyph->numberOfContours);
-    //printf("glyph->numberOfContours %lu\n", numberOfContours);
     
     int numPoints = -1;
     for(int i = 0; i < numberOfContours; i++) {
         uint16_t v = __REV16(glyph_data->endPtsOfContours[i]);
-      //  printf("glyph_data->endPtsOfContours %lu = %lu\n", i, v);
         if (v > numPoints) numPoints = v;
     }
+
     numPoints++;
     glyph_data->numPoints = numPoints;
-    // printf("glyph_data->numPoints %lu\n", numPoints);
     glyph_data->instructionLength = __REV16( *(glyph_data->endPtsOfContours + numberOfContours) );
-    //printf("glyph_data->instructionLength %lu\n", glyph_data->instructionLength);
     glyph_data->instructions = (uint8_t*)(glyph_data->endPtsOfContours + numberOfContours + 1);
     uint8_t *flags = (glyph_data->instructions + glyph_data->instructionLength);
 
@@ -1165,8 +1161,6 @@ bool truetypefont_read_glyph(truetypefont_t* ttf, ttf_glyph_data *glyph_data, ui
         // this.readCompoundGlyph(file, glyph);
         return false;
     } else {
-        //this.readSimpleGlyph(file, glyph);
-
         const int /*ON_CURVE = 1,*/ X_IS_BYTE = 2, Y_IS_BYTE = 4, REPEAT = 8, X_DELTA = 16, Y_DELTA = 32;
 
         int i=0;
@@ -1188,34 +1182,25 @@ bool truetypefont_read_glyph(truetypefont_t* ttf, ttf_glyph_data *glyph_data, ui
         }
         uint8_t *coordinates = ((void*)flags) + i;
 
-        //for(int i=0; i<16; i++) printf(">i %lu\n", *(coordinates+i));
         {
             int16_t value = 0;
 
             for (int i = 0; i < numPoints; i++) {
-                //printf("i=%lu\n", i);
                 uint8_t flag = glyph_data->coordinates[i].flags;
-                //printf("flag %lu\n",flag);
                 if (flag & X_IS_BYTE) {
-                    //printf("X_IS_BYTE\n");
                     if (flag & X_DELTA) {
-                        //printf("X_DELTA\n");
                         value += *(coordinates++);
                     } else {
-                        //printf("!X_DELTA\n");
                         value -= *(coordinates++);
                     }
                 } else if (~flag & X_DELTA) {
-                    //printf("!X_DELTA2\n");
                     value += __REV16(*(int16_t*)coordinates);
                     coordinates += 2;
                 } else {
-                    //printf("Unchanged\n");
                     // value is unchanged.
                 }
 
                 glyph_data->coordinates[i].x = value;
-                // printf("value %lu\n", value);
             }
         }
 
@@ -1257,14 +1242,11 @@ int ttf_table_cmap_char_to_index(truetypefont_t* ttf, uint16_t charCode) {
         uint16_t platformID = __REV16(subtable->platformID);
         uint16_t platformSpecificID = __REV16(subtable->platformSpecificID);
         uint32_t offset = __REV(subtable->offset);
-        //printf("CMap platformid=%lu specificid=%lu offset=%lu\n", platformID, platformSpecificID, offset);
+
         if (platformID == 3 && (platformSpecificID <= 1)) {
-            //printf("readCmap\n");
-            
             void *cmap_table_ptr = (void*)(ttf->cmap) + offset;
             uint16_t format = __REV16(*(uint32_t*)cmap_table_ptr);
-            //printf("format %lu\n", format);
-            
+
             if (format == 0) {
                 table_cmap_format_0 *cmap0 = cmap_table_ptr;
                 if (charCode >= 0 && charCode < 256) {
@@ -1274,16 +1256,9 @@ int ttf_table_cmap_char_to_index(truetypefont_t* ttf, uint16_t charCode) {
             else if (format == 4) {
 
                 table_cmap_format_4 *cmap4 = cmap_table_ptr;
-                
-                // 2x segcount
+
                 uint16_t segCount = __REV16(cmap4->segCountX2) >> 1;
-                // 2 * (2**floor(log2(segCount)))
-                // uint16_t searchRange = __REV16(cmap4->searchRange);
-                // log2(searchRange)
-                // uint16_t entrySelector = __REV16(cmap4->entrySelector);
-                // (2*segCount) - searchRange
-                //uint16_t rangeShift = __REV16(cmap4->rangeShift);
-                
+
                 uint16_t *endCode_ptr= &(cmap4->endCode0);
                 uint16_t *startCode_ptr= endCode_ptr + segCount + 1;
                 uint16_t *idDelta_ptr= startCode_ptr + segCount;
@@ -1295,18 +1270,11 @@ int ttf_table_cmap_char_to_index(truetypefont_t* ttf, uint16_t charCode) {
                         uint16_t index;
                         if (idRangeOffset_ptr[segment_index]) {
                             uint16_t *glyphIndexAddress = &(idRangeOffset_ptr[segment_index]) + (__REV16(idRangeOffset_ptr[segment_index]) / 2) + (charCode - __REV16(startCode_ptr[segment_index]));
-                            //glyphIndexAddress = __REV16(idRangeOffset_ptr[segment_index]) + 2 * (charCode - __REV16(startCode_ptr[segment_index]));
-                            // this.file.seek(glyphIndexAddress);
-                            index = __REV16(*glyphIndexAddress); //this.file.getUint16();
+                            index = __REV16(*glyphIndexAddress);
                         } else {
-                            //printf(">>>>>>>>>>");
                             index = (__REV16(idDelta_ptr[segment_index]) + charCode) & 0xffff;
                         }
-    
-                        //printf("Charcode %lu is between %lu and %lu; maps to %lu (%lu) roffset=%lu\n",
-                        //    charCode, __REV16(startCode_ptr[segment_index]), __REV16(endCode_ptr[segment_index]),
-                        //    glyphIndexAddress, index, __REV16(idRangeOffset_ptr[segment_index]));
-    
+
                         return index;
                     }
                 }
@@ -1321,33 +1289,95 @@ int ttf_table_cmap_char_to_index(truetypefont_t* ttf, uint16_t charCode) {
 typedef struct {
     float x;
     int8_t d;
-} ttf_xlist;
+} ttf_intersect_list_element;
+
+typedef struct {
+    uint32_t index;
+    uint32_t count;
+    ttf_intersect_list_element list[64];
+} ttf_intersect_list;
+
+void ttf_intersect_list_init(ttf_intersect_list *intersect_list) {
+    intersect_list->index = 0;
+    intersect_list->count = 0;
+}
+
+void ttf_intersect_list_add(ttf_intersect_list *intersect_list, float x, bool d) {
+    ttf_intersect_list_element *element = &intersect_list->list[intersect_list->count++];
+    element->x = x;
+    element->d = d ? 1 : -1;
+}
+
+void ttf_test_and_add_intersection(ttf_intersect_list *intersect_list, int32_t y, ttf_point *point1, ttf_point *point2) {
+    float y1 = point1->y, y2 = point2->y;
+    bool possible = (y >= y1 && y <= y2) || (y <= y1 && y >= y2);
+
+    if (possible && y1 != y2) {
+        float x1 = point1->x, x2 = point2->x;
+        float g = (x1 - x2) / (y1 - y2);
+        float x = g * (y - y1) + x1;
+        ttf_intersect_list_add(intersect_list, x, y1 > y2);
+    }
+}
+
+void ttf_intersect_list_sort(ttf_intersect_list *intersect_list) {
+    // Don't look at this bubble sort :)
+    // There's usually no more than 4 values so it doesn't really matter.
+    ttf_intersect_list_element *list = intersect_list->list;
+    int32_t count = intersect_list->count;
+
+    for(int i=0; i < count - 1; i++) {
+        for(int j=0; j < count - i - 1; j++) {
+            if (list[j].x > list[j + 1].x) {
+                float x = list[j].x;
+                list[j].x = list[j + 1].x;
+                list[j + 1].x = x;
+                int8_t d = list[j].d;
+                list[j].d = list[j + 1].d;
+                list[j + 1].d = d;
+            }
+        }
+    }
+}
+
+ttf_intersect_list_element *ttf_intersect_list_get(ttf_intersect_list *intersect_list) {
+    if (intersect_list->index < intersect_list->count) {
+        return &intersect_list->list[intersect_list->index];
+    }
+
+    return NULL;
+}
+
+bool ttf_intersect_list_next(ttf_intersect_list *intersect_list) {
+    if (intersect_list->index < intersect_list->count) {
+        intersect_list->index++;
+        if (intersect_list->index < intersect_list->count) return true;
+    }
+    
+    return false;
+}
 
 float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
     const ttf_table_glyf *glyf = truetypefont_get_glyph_ptr(ttf, glyph_index);
     
-    if (!glyf) {
-        // glyph not found, probably space character
-        return 0;
-    }
+    // glyph not found, probably space character
+    if (!glyf) return 0;
 
+    // Clean and convert color to pixel format
     uint32_t fr = 0, fg = 0, fb = 0;
+
     switch(img->bpp) {
-        case IMAGE_BPP_BINARY: {
+        case IMAGE_BPP_BINARY:
+        case IMAGE_BPP_GRAYSCALE:
             color &= 255;
             break;
-        }
-        case IMAGE_BPP_GRAYSCALE: {
-            color &= 255;
-            break;
-        }
-        case IMAGE_BPP_RGB565: {
+
+        case IMAGE_BPP_RGB565:
             color &= 65535;
             fr = COLOR_RGB565_TO_R5(color);
             fg = COLOR_RGB565_TO_G6(color);
             fb = COLOR_RGB565_TO_B5(color);
             break;
-        }
     }
 
     uint16_t units_per_em = __REV16(ttf->head->unitsPerEm);
@@ -1357,84 +1387,56 @@ float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, ui
 
     float pixels_per_unit = size_pixels / units_per_em;
 
-    int32_t offset_x_pixels = location_x + offset_x_units * pixels_per_unit; // Convert offset to pixels
-    int32_t offset_y_pixels = location_y + offset_y_units * pixels_per_unit;
+    int32_t offset_x_pixels = floorf(location_x + offset_x_units * pixels_per_unit);
+    int32_t offset_y_pixels = floorf(location_y + offset_y_units * pixels_per_unit);
     
     ttf_glyph_data glyph_data;
     truetypefont_read_glyph(ttf, &glyph_data, glyph_index);
-    // printf("numberOfContours %lu\n", __REV16(glyf->numberOfContours));
+    
     int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * pixels_per_unit);
-    int32_t xMax = floorf(((int16_t)__REV16(glyf->xMax)) * pixels_per_unit);
+    int32_t xMax = ceilf(((int16_t)__REV16(glyf->xMax)) * pixels_per_unit);
     int32_t yMin = floorf(((int16_t)__REV16(glyf->yMin)) * pixels_per_unit);
-    int32_t yMax = floorf(((int16_t)__REV16(glyf->yMax)) * pixels_per_unit);
+    int32_t yMax = ceilf(((int16_t)__REV16(glyf->yMax)) * pixels_per_unit);
     
-    //printf("xMin=%lu xMax=%lu yMin=%lu yMax=%lu\n", xMin, xMax, yMin, yMax);
-    
-    for (int i = 0; i < glyph_data.numPoints; i++) {
-        glyph_data.coordinates[i].x *= pixels_per_unit;
-        glyph_data.coordinates[i].y *= pixels_per_unit;
-        //printf("point (%f,%f)\n", glyph_data.coordinates[i].x, glyph_data.coordinates[i].y);
-    }
-
-    // offset_y - yy should not be less than 0, so yy should be greater than offset_y
-    // offset_y - yMax
-    // printf("Rendering yMin=%lu yMax=%lu\n",yMin,yMax);
-
     if (yMax > offset_y_pixels) {
         yMax = offset_y_pixels;
     }
 
     if (offset_y_pixels - yMin >= img->h) {
-        yMin = (offset_y_pixels - img->h + 1);
+        yMin = offset_y_pixels - img->h + 1;
     }
 
-    for (int yy = yMin; yy <= yMax ; yy++) {
+    if ((offset_x_pixels + xMin) < 0) {
+        xMin = -offset_x_pixels;
+    }
+
+    if (offset_x_pixels + xMax >= img->w) {
+        xMax = (img->w - offset_x_pixels- 1);
+    }
+
+    if (xMin > xMax || yMin > yMax) return 0;
+    
+    for (int i = 0; i < glyph_data.numPoints; i++) {
+        glyph_data.coordinates[i].x *= pixels_per_unit;
+        glyph_data.coordinates[i].y *= pixels_per_unit;
+    }
+
+    ttf_intersect_list intersect_list;
+    for (int y = yMin; y <= yMax ; y++) {
         ttf_point *last_point = NULL;
-        ttf_xlist xlist[64];
-        int xlist_count = 0;
+
+        ttf_intersect_list_init(&intersect_list);
+        
         ttf_point *first_point = NULL;
         for (int p = 0, c = 0; p < glyph_data.numPoints; p++) {
             ttf_point *point = &(glyph_data.coordinates[p]);
             if (first_point == NULL) first_point = point;
             if (last_point) {
-                // compare segment
-                float y1 = last_point->y, y2 = point->y;
-                bool possible = (yy >= y1 && yy <= y2) || (yy <= y1 && yy >= y2);
-                if (possible) {
-                    if (y1 != y2) {
-                        float x1 = last_point->x, x2 = point->x;
-                        float g = ((float)(x1 - x2)) / ((float)(y1 - y2));
-                        // printf("(%lu,%lu)-(%lu,%lu)=(%lu,%lu)", x1, y1, x2, y2, x1-x2, y1-y2);
-                        // printf("g %f\n", g);
-                        float intersect_x = g * (float)(yy - y1) + (float)x1;
-                        // printf("i %f %lu\n", intersect_x, yy-y1);
-                        // xlist.push({ix:intersect_x, d: (y1>y2)?1:-1});
-                        xlist[xlist_count].x = intersect_x;
-                        xlist[xlist_count++].d = (y1>y2)?1:-1;
-                    }
-                }
+                ttf_test_and_add_intersection(&intersect_list, y, last_point, point);
             }
 
             if (p == __REV16(glyph_data.endPtsOfContours[c])) {
-                last_point = point;
-                point = first_point;
-                
-                // compare segment
-                float y1 = last_point->y, y2 = point->y;                
-                bool possible = (yy >= y1 && yy < y2) || (yy < y1 && yy >= y2);
-                //console.log(">>> y",yy,y1,y2,"p",possible,{...last_point},{...point});
-                if (possible) {
-                    //console.log('possible2');
-                    if (y1 != y2) {
-                        int x1 = last_point->x, x2 = point->x;
-                        float g = (x1 - x2) / (y1 - y2);
-                        float intersect_x = g * (yy - y1) + x1;
-                        // xlist.push({ix:intersect_x, d: (y1>y2)?1:-1});
-                        xlist[xlist_count].x = intersect_x;
-                        xlist[xlist_count++].d = (y1>y2)?1:-1;
-                    }
-                }
-
+                ttf_test_and_add_intersection(&intersect_list, y, point, first_point);
                 last_point = first_point = NULL;
                 c++;
             }
@@ -1443,60 +1445,67 @@ float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, ui
             }
         }
         
-        // xlist.sort((a,b) => a.ix<b.ix?-1:a.ix==b.ix?0:1);
-        // Don't look at this bubble sort!
-        for(int i=0; i < xlist_count - 1; i++) {
-            for(int j=0; j < xlist_count - i - 1; j++) {
-                if (xlist[j].x > xlist[j + 1].x) {
-                    float x = xlist[j].x;
-                    xlist[j].x = xlist[j + 1].x;
-                    xlist[j + 1].x = x;
-                    int8_t d = xlist[j].d;
-                    xlist[j].d = xlist[j + 1].d;
-                    xlist[j + 1].d = d;
+        ttf_intersect_list_sort(&intersect_list);
+        
+        int inside = 0;
+
+        // Remove leading pixels outside of range, but still calculate wheter line is inside the curve.
+        {
+            float last_intersection_x = -100000;
+            int8_t last_d = 0;
+            ttf_intersect_list_element *intersect = NULL;
+            
+            while ((intersect = ttf_intersect_list_get(&intersect_list))) {
+                float this_x = intersect->x;
+                int8_t this_d = intersect->d;
+
+                if (this_x >= xMin) break;
+
+                if (last_intersection_x != this_x || last_d != this_d) {
+                    last_intersection_x = this_x;
+                    last_d = this_d;
+                    inside += this_d;
                 }
+                
+                if (!ttf_intersect_list_next(&intersect_list)) break;
             }
         }
-        
-        /*
-        printf("xlist yy=%lu ", yy);
-        for(int k=0; k < xlist_count; k++) {
-            printf("(%f,", xlist[k].x);
-            printf("%lu) ", xlist[k].d);
-        }
-        printf("\n");
-        */
-        
-        int inside = 0, xlist_i = 0;
-        for (int xx = xMin; xx <= xMax; xx++) {
-            float last_x_intercept = -100000, last_d = 0;
+
+        for (int x = xMin; x <= xMax; x++) {
+            int last_d = 0;
+            float last_x = -100000;
+            ttf_intersect_list_element *intersect = NULL;
             float delta_sum = 0;
-            while (xlist_i != xlist_count && xx >= floorf(xlist[xlist_i].x)) {
-                if (last_x_intercept != xlist[xlist_i].x && last_d != xlist[xlist_i].d) {
+
+            while((intersect = ttf_intersect_list_get(&intersect_list))) {
+                float this_x = intersect->x;
+                int8_t this_d = intersect->d;
+
+                if (x != floorf(this_x)) break;
+
+                if (last_x != this_x || last_d != this_d) {
                     if (inside < 0) {
-                        delta_sum += (xlist[xlist_i].x - ((last_x_intercept == -100000) ? xx : last_x_intercept));
+                        delta_sum += (this_x - ((last_x == -100000) ? x : last_x));
                     }
-                    inside += xlist[xlist_i].d;
-                    last_x_intercept = xlist[xlist_i].x;
-                    last_d = xlist[xlist_i].d;
+                    inside += this_d;
+                    last_x = this_x;
+                    last_d = this_d;
                 }
-                xlist_i++;
+                if (!ttf_intersect_list_next(&intersect_list)) break;
             }
 
-            // 0 or 1 intercepts
-            if (last_x_intercept==-100000) {
+            // If there were no x intercepts in this pixel then fill the pixel.
+            if (last_x == -100000) {
                 delta_sum = (inside < 0) ? 1 : 0;
             }
-            else {
-                if (inside < 0) {
-                    delta_sum += ((float)xx + 1.0f - last_x_intercept);
-                }
+            // Otherwise fill the remainder of the pixel
+            else if (inside < 0) {
+                delta_sum += ((float)x + 1.0f - last_x);
             }
 
-            int32_t x_pixel = offset_x_pixels + xx;
-            int32_t y_pixel = offset_y_pixels - yy;
-
             if (delta_sum!=0) {
+                int32_t x_pixel = offset_x_pixels + x;
+                int32_t y_pixel = offset_y_pixels - y;
                 uint32_t alpha = delta_sum * 255;
 
                 switch(img->bpp) {
@@ -1537,7 +1546,7 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
     int len = strlen(text);
     int x_units = 0, y_units = 0;
     uint16_t units_per_em = __REV16(ttf.head->unitsPerEm);
-    float pixels_per_unit = size_pixels / units_per_em;
+    //float pixels_per_unit = size_pixels / units_per_em;
 
     for(int i=0; i < len; i++) {
         char ch = text[i];
@@ -1552,15 +1561,14 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
             
             // TODO render horizontally and vertically?
             // TODO grid fit
-            int32_t glyph_width_pixels = ttf_draw_glyph(&ttf, img, glyph_index, color, x_off, y_off, size_pixels, x_units, y_units);
+            ttf_draw_glyph(&ttf, img, glyph_index, color, x_off, y_off, size_pixels, x_units, y_units);
 
             // Ensure at least one pixel gap between glyphs
             int32_t advance_width_units = __REV16(metrics.advanceWidth);
-            int32_t advance_width_pixels = advance_width_units * pixels_per_unit;
+            /*int32_t advance_width_pixels = advance_width_units * pixels_per_unit;
             if (advance_width_pixels <= glyph_width_pixels) {
-                advance_width_pixels++;
-                advance_width_units = advance_width_pixels / pixels_per_unit;
-            }
+                advance_width_units = (glyph_width_pixels + 1) / pixels_per_unit;
+            }*/
             x_units += advance_width_units;
         }
     }
