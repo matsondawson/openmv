@@ -205,9 +205,12 @@ typedef struct {
         const void *data;
         const ttf_offset_subtable_t* offset_subtable;
     };
-} truetypefont_t;
+} ttf_t;
 
-const void* truetypefont_find_table(truetypefont_t* ttf, char *tag) {
+
+/************************************************* truetypefont object functions *************************************************/
+
+const void* ttf_find_table(ttf_t* ttf, char *tag) {
     ttf_table_directory* table_directory = (ttf_table_directory*)(ttf->data + sizeof(ttf_offset_subtable_t));
     for(int i = 0; i < __REV16(ttf->offset_subtable->numTables); i++) {
         if (table_directory->tag == *(uint32_t*)tag) {
@@ -219,23 +222,23 @@ const void* truetypefont_find_table(truetypefont_t* ttf, char *tag) {
     return NULL;
 }
 
-void truetypefont_init(truetypefont_t* ttf, const uint8_t *data) {
+void ttf_init(ttf_t* ttf, const uint8_t *data) {
     ttf->data = data;
-    ttf->head = truetypefont_find_table(ttf, "head");
+    ttf->head = ttf_find_table(ttf, "head");
     PY_ASSERT_TRUE_MSG(ttf->head != NULL, "No head table");
-    ttf->loca = truetypefont_find_table(ttf, "loca");
+    ttf->loca = ttf_find_table(ttf, "loca");
     PY_ASSERT_TRUE_MSG(ttf->loca != NULL, "No loca table");
-    ttf->glyf = truetypefont_find_table(ttf, "glyf");
+    ttf->glyf = ttf_find_table(ttf, "glyf");
     PY_ASSERT_TRUE_MSG(ttf->glyf != NULL, "No glyf table");
-    ttf->cmap = truetypefont_find_table(ttf, "cmap");
+    ttf->cmap = ttf_find_table(ttf, "cmap");
     PY_ASSERT_TRUE_MSG(ttf->cmap != NULL, "No cmap table");
-    ttf->hhea = truetypefont_find_table(ttf, "hhea");
+    ttf->hhea = ttf_find_table(ttf, "hhea");
     PY_ASSERT_TRUE_MSG(ttf->hhea != NULL, "No hhea table");
-    ttf->longHorMetric = truetypefont_find_table(ttf, "hmtx");
+    ttf->longHorMetric = ttf_find_table(ttf, "hmtx");
     PY_ASSERT_TRUE_MSG(ttf->longHorMetric != NULL, "No hmtx table");
 }
 
-longHorMetric truetypefont_get_horizontal_metrics(truetypefont_t* ttf, uint32_t glyphIndex) {
+longHorMetric ttf_get_horizontal_metrics(ttf_t* ttf, uint32_t glyphIndex) {
     // If glyph exists in table
     uint16_t numOfLongHorMetrics = __REV16(ttf->hhea->numOfLongHorMetrics);
     if (glyphIndex < numOfLongHorMetrics) {
@@ -246,40 +249,23 @@ longHorMetric truetypefont_get_horizontal_metrics(truetypefont_t* ttf, uint32_t 
     }
 }
 
-const ttf_table_glyf *truetypefont_get_glyph_ptr(truetypefont_t* ttf, uint32_t index) {
+const ttf_table_glyf *ttf_get_glyph_ptr(ttf_t* ttf, uint32_t index) {
     uint32_t offset, next;
-    
-    //printf("loc version %lu\n", __REV(ttf->head->version));
-    //printf("loc fontRevision %lu\n", __REV(ttf->head->fontRevision));
-    //printf("loc checkSumAdjustment %x\n", __REV(ttf->head->checkSumAdjustment));
-    //printf("loc magicNumber %x\n", __REV(ttf->head->magicNumber));
-    //printf("loc flags %lu\n", __REV16(ttf->head->flags));
-    //printf("loc unitsPerEm %lu\n", __REV16(ttf->head->unitsPerEm));
-    //printf("loc xMin %lu\n", __REV16(ttf->head->xMin));
-    //printf("loc macStyle %lu\n", __REV16(ttf->head->macStyle));
-    //printf("loc lowestRecPPEM %lu\n", __REV16(ttf->head->lowestRecPPEM));
-    
-    //printf("loc indexToLocFormat %lu\n", __REV16(ttf->head->indexToLocFormat));
 
     if (__REV16(ttf->head->indexToLocFormat) == 1) {
         uint32_t *ptr = ((uint32_t*)(ttf->loca)) + index;
         offset = __REV(*(ptr++));
-        // printf("a %lu\n", ptr);
         next = __REV(*ptr);
     } else {
         uint16_t *ptr = (uint16_t*)(ttf->loca) + index;
         offset = __REV16(*(ptr++)) << 1;
-        // printf("glyph index=%lu offset=%lu\n", index, offset);
         next = __REV16(*ptr) << 1;
     }
 
     if (offset == next) {
-        // printf("null");
         // indicates glyph has no outline( eg space)
         return NULL;
     }
-
-    //this.log("Offset for glyph index %s is %s", index, offset);
 
     return (void*)(ttf->glyf) + offset;
 }
@@ -294,13 +280,11 @@ typedef struct {
     uint16_t *endPtsOfContours;//	Array of last points of each contour; n is the number of contours; array entries are point indices
     uint16_t instructionLength;//	Total number of bytes needed for instructions
     uint8_t	*instructions; // Array of instructions for this glyph
-    //uint8 or int16	xCoordinates[]	Array of x-coordinates; the first is relative to (0,0), others are relative to previous point
-    //uint8 or int16	yCoordinates[]	Array of y-coordinates; the first is relative to (0,0), others are relative to previous point
     ttf_point	coordinates[64];
 } ttf_glyph_data;
 
-bool truetypefont_read_glyph(truetypefont_t* ttf, ttf_glyph_data *glyph_data, uint32_t index) {
-    const ttf_table_glyf *glyph = truetypefont_get_glyph_ptr(ttf, index);
+bool ttf_read_glyph(ttf_t* ttf, ttf_glyph_data *glyph_data, uint32_t index) {
+    const ttf_table_glyf *glyph = ttf_get_glyph_ptr(ttf, index);
 
     if (glyph == NULL) {
         return false;
@@ -400,8 +384,7 @@ bool truetypefont_read_glyph(truetypefont_t* ttf, ttf_glyph_data *glyph_data, ui
     return true;
 }
 
-
-int ttf_table_cmap_char_to_index(truetypefont_t* ttf, uint16_t charCode) {
+int ttf_table_cmap_char_to_index(ttf_t* ttf, uint16_t charCode) {
     for (int i = 0; i < __REV16(ttf->cmap->numberSubtables); i++) {
         // platforms are: 
         // 0 - Unicode -- use specific id 6 for full coverage. 0/4 common.
@@ -501,6 +484,7 @@ void ttf_intersect_list_sort(ttf_intersect_list *intersect_list) {
                 float x = list[j].x;
                 list[j].x = list[j + 1].x;
                 list[j + 1].x = x;
+
                 int8_t d = list[j].d;
                 list[j].d = list[j + 1].d;
                 list[j + 1].d = d;
@@ -526,8 +510,8 @@ bool ttf_intersect_list_next(ttf_intersect_list *intersect_list) {
     return false;
 }
 
-float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
-    const ttf_table_glyf *glyf = truetypefont_get_glyph_ptr(ttf, glyph_index);
+float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
+    const ttf_table_glyf *glyf = ttf_get_glyph_ptr(ttf, glyph_index);
     
     // glyph not found, probably space character
     if (!glyf) return 0;
@@ -560,7 +544,7 @@ float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, ui
     int32_t offset_y_pixels = floorf(location_y + offset_y_units * pixels_per_unit);
     
     ttf_glyph_data glyph_data;
-    truetypefont_read_glyph(ttf, &glyph_data, glyph_index);
+    ttf_read_glyph(ttf, &glyph_data, glyph_index);
     
     int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * pixels_per_unit);
     int32_t xMax = ceilf(((int16_t)__REV16(glyf->xMax)) * pixels_per_unit);
@@ -720,8 +704,8 @@ float ttf_draw_glyph(truetypefont_t* ttf, image_t *img, uint16_t glyph_index, ui
 }
 
 void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels) {
-    truetypefont_t ttf;
-    truetypefont_init(&ttf, font);
+    ttf_t ttf;
+    ttf_init(&ttf, font);
 
     int len = strlen(text);
     int x_units = 0, y_units = 0;
@@ -738,9 +722,11 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
             // Draw glyph
             int glyph_index = ttf_table_cmap_char_to_index(&ttf, ((uint16_t)ch) & 255);
 
-            longHorMetric metrics = truetypefont_get_horizontal_metrics(&ttf, glyph_index);
+            longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
             
-            // TODO render horizontally and vertically?
+            // Smooth fonts a little using the off curve points
+            // TODO load fonts from an sd card and cache
+            // TODO render horizontally and vertically at low res/oversample?
             // TODO grid fit
             ttf_draw_glyph(&ttf, img, glyph_index, color, x_off, y_off, size_pixels, x_units, y_units);
 
