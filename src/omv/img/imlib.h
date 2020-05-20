@@ -75,7 +75,7 @@
 #define IM_DEG2RAD(x)   (((x)*M_PI)/180)
 #define IM_RAD2DEG(x)   (((x)*180)/M_PI)
 
-extern const uint8_t font_data[];
+extern const uint8_t font_data_liberation_sans[];
 
 /////////////////
 // Point Stuff //
@@ -1148,6 +1148,7 @@ typedef enum image_hint {
     IMAGE_HINT_CENTER = 128
 } image_hint_t;
 
+void* imlib_compute_row_ptr(const image_t *img, int y);
 
 /* Color space functions */
 int8_t imlib_rgb565_to_l(uint16_t pixel);
