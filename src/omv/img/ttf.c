@@ -18,6 +18,14 @@
 
 #include "py_assert.h"
 
+#define ttf_assert PY_ASSERT_TRUE_MSG
+
+#define ttf_fixed int32_t
+#define ttf_fword int16_t
+#define ttf_ufword uint16_t
+
+const int ON_CURVE = 1, X_IS_BYTE = 2, Y_IS_BYTE = 4, REPEAT = 8, X_DELTA = 16, Y_DELTA = 32;
+
 typedef struct {
     // A tag to indicate the OFA scaler to be used to rasterize this font; see the note on the scaler type below for more information.
     uint32_t	scaler_type; // Not used
@@ -41,10 +49,6 @@ typedef struct {
     // length of this table in byte (actual length not padded length)
     uint32_t	length;
 } ttf_table_directory;
-
-#define ttf_fixed int32_t
-#define ttf_fword int16_t
-#define ttf_ufword uint16_t
 
 typedef struct {
     // 0x00010000 if (version 1.0)
@@ -225,28 +229,24 @@ const void* ttf_find_table(ttf_t* ttf, char *tag) {
 void ttf_init(ttf_t* ttf, const uint8_t *data) {
     ttf->data = data;
     ttf->head = ttf_find_table(ttf, "head");
-    PY_ASSERT_TRUE_MSG(ttf->head != NULL, "No head table");
+    ttf_assert(ttf->head != NULL, "No head table");
     ttf->loca = ttf_find_table(ttf, "loca");
-    PY_ASSERT_TRUE_MSG(ttf->loca != NULL, "No loca table");
+    ttf_assert(ttf->loca != NULL, "No loca table");
     ttf->glyf = ttf_find_table(ttf, "glyf");
-    PY_ASSERT_TRUE_MSG(ttf->glyf != NULL, "No glyf table");
+    ttf_assert(ttf->glyf != NULL, "No glyf table");
     ttf->cmap = ttf_find_table(ttf, "cmap");
-    PY_ASSERT_TRUE_MSG(ttf->cmap != NULL, "No cmap table");
+    ttf_assert(ttf->cmap != NULL, "No cmap table");
     ttf->hhea = ttf_find_table(ttf, "hhea");
-    PY_ASSERT_TRUE_MSG(ttf->hhea != NULL, "No hhea table");
+    ttf_assert(ttf->hhea != NULL, "No hhea table");
     ttf->longHorMetric = ttf_find_table(ttf, "hmtx");
-    PY_ASSERT_TRUE_MSG(ttf->longHorMetric != NULL, "No hmtx table");
+    ttf_assert(ttf->longHorMetric != NULL, "No hmtx table");
 }
 
 longHorMetric ttf_get_horizontal_metrics(ttf_t* ttf, uint32_t glyphIndex) {
     // If glyph exists in table
     uint16_t numOfLongHorMetrics = __REV16(ttf->hhea->numOfLongHorMetrics);
-    if (glyphIndex < numOfLongHorMetrics) {
-        // copy
-        return ttf->longHorMetric[glyphIndex];
-    } else {
-        return ttf->longHorMetric[numOfLongHorMetrics - 1];
-    }
+    
+    return ttf->longHorMetric[(glyphIndex < numOfLongHorMetrics) ? glyphIndex : (numOfLongHorMetrics - 1)];
 }
 
 const ttf_table_glyf *ttf_get_glyph_ptr(ttf_t* ttf, uint32_t index) {
@@ -262,12 +262,10 @@ const ttf_table_glyf *ttf_get_glyph_ptr(ttf_t* ttf, uint32_t index) {
         next = __REV16(*ptr) << 1;
     }
 
-    if (offset == next) {
-        // indicates glyph has no outline( eg space)
-        return NULL;
-    }
+    // indicates glyph has no outline( eg space)
+    if (offset == next) return NULL;
 
-    return (void*)(ttf->glyf) + offset;
+    return (void*)ttf->glyf + offset;
 }
 
 typedef struct ttf_point {
@@ -286,13 +284,8 @@ typedef struct {
 bool ttf_read_glyph(ttf_t* ttf, ttf_glyph_data *glyph_data, uint32_t index) {
     const ttf_table_glyf *glyph = ttf_get_glyph_ptr(ttf, index);
 
-    if (glyph == NULL) {
-        return false;
-    }
-    
-    if (!glyph->numberOfContours) {
-        return false;
-    }
+    if (glyph == NULL) return false;
+    if (!glyph->numberOfContours) return false;
 
     glyph_data->endPtsOfContours = (void*)glyph + sizeof(ttf_table_glyf);
     
@@ -315,8 +308,6 @@ bool ttf_read_glyph(ttf_t* ttf, ttf_glyph_data *glyph_data, uint32_t index) {
         // this.readCompoundGlyph(file, glyph);
         return false;
     } else {
-        const int /*ON_CURVE = 1,*/ X_IS_BYTE = 2, Y_IS_BYTE = 4, REPEAT = 8, X_DELTA = 16, Y_DELTA = 32;
-
         int i=0;
         for (int point = 0; point < numPoints;) {
             uint8_t flag = flags[i++];
@@ -518,6 +509,40 @@ bool ttf_intersect_list_next(ttf_intersect_list *intersect_list) {
     
     return false;
 }
+/*
+void ttf_grid_fit(ttf_glyph_data *glyph_data) {
+    float left_x = 0;
+    float right_x = 10000;
+    float left_max = 0;
+    float right_max = 0;
+
+    
+    for (int i = 1; i < glyph_data.numPoints; i++) {
+        if (glyph_data->coordinates[i].x == glyph_data->coordinates[i-1].x) {
+            float len = fabs(glyph_data->coordinates[i].y - glyph_data->coordinates[i-1].y);
+            if (len>left_max)
+        }
+        glyph_data.coordinates[i].x *= pixels_per_unit;
+        glyph_data.coordinates[i].y *= pixels_per_unit;
+    }
+}*/
+
+ttf_point last_draw_point;
+
+void ttf_move_to(ttf_point *point) {
+    last_draw_point = *point;
+}
+
+void ttf_line_to(ttf_intersect_list *intersect_list, float y, ttf_point *point) {
+    ttf_test_and_add_intersection(intersect_list, y, &last_draw_point, point);
+    last_draw_point = *point;
+}
+
+void ttf_curve_to(ttf_intersect_list *intersect_list, float y, ttf_point *point1, ttf_point *point2) {
+    ttf_test_and_add_intersection(intersect_list, y, &last_draw_point, point1);
+    ttf_test_and_add_intersection(intersect_list, y, point1, point2);
+    last_draw_point = *point2;
+}
 
 float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
     const ttf_table_glyf *glyf = ttf_get_glyph_ptr(ttf, glyph_index);
@@ -555,6 +580,7 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
     ttf_glyph_data glyph_data;
     ttf_read_glyph(ttf, &glyph_data, glyph_index);
     
+    // Round?
     int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * pixels_per_unit);
     int32_t xMax = ceilf(((int16_t)__REV16(glyf->xMax)) * pixels_per_unit);
     int32_t yMin = floorf(((int16_t)__REV16(glyf->yMin)) * pixels_per_unit);
@@ -583,26 +609,56 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
         glyph_data.coordinates[i].y *= pixels_per_unit;
     }
 
+    //ttf_grid_fit(&glyph_data);
+
     ttf_intersect_list intersect_list;
     for (int y = yMin; y <= yMax ; y++) {
-        ttf_point *last_point = NULL;
-
         ttf_intersect_list_init(&intersect_list);
         
-        ttf_point *first_point = NULL;
-        for (int p = 0, c = 0; p < glyph_data.numPoints; p++) {
+        for (int p = 0, s = 0, c = 0, contour_start = 0; p < glyph_data.numPoints; p++) {
             ttf_point *point = &(glyph_data.coordinates[p]);
-            if (first_point == NULL) first_point = point;
-            if (last_point) {
-                ttf_test_and_add_intersection(&intersect_list, y, last_point, point);
+            
+            if (s == 0) {
+                s = 1;
+                ttf_move_to(point);
+            } else if (s == 1) {
+                if (point->flags & ON_CURVE) {
+                    ttf_line_to(&intersect_list, y, point);
+                }
+                else {
+                    s = 2;
+                }
+            } else {
+                ttf_point *prev = &(glyph_data.coordinates[p - 1]);
+                if (point->flags & ON_CURVE) {
+                    ttf_curve_to(&intersect_list, y, prev, point);
+                    s = 1;
+                }
+                else {
+                    ttf_point end_point;
+                    end_point.x = (prev->x + point->x) / 2;
+                    end_point.y = (prev->y + point->y) / 2;
+                    ttf_curve_to(&intersect_list, y, prev, &end_point);
+                }
             }
 
             if (p == __REV16(glyph_data.endPtsOfContours[c])) {
-                ttf_test_and_add_intersection(&intersect_list, y, point, first_point);
-                last_point = first_point = NULL;
+                ttf_point *prev = point;
+
+                point = &(glyph_data.coordinates[contour_start]);
+
+                if (point->flags & ON_CURVE) {
+                    ttf_curve_to(&intersect_list, y, prev, point);
+                } else {
+                    ttf_point end_point;
+                    end_point.x = (prev->x + point->x) / 2;
+                    end_point.y = (prev->y + point->y) / 2;
+                    ttf_curve_to(&intersect_list, y, prev, &end_point);
+                }
+
+                contour_start = p + 1;
+                s = 0;
                 c++;
-            } else {
-                last_point = point;
             }
         }
         
