@@ -452,7 +452,7 @@ void ttf_intersect_list_add(ttf_intersect_list *intersect_list, float x, bool d)
 
 void ttf_test_and_add_intersection(ttf_intersect_list *intersect_list, int32_t y, ttf_point *point1, ttf_point *point2) {
     float y1 = point1->y, y2 = point2->y;
-    bool possible = (y1 != y2) && ((y >= y1 && y <= y2) || (y <= y1 && y >= y2));
+    bool possible = (y1 != y2) && ((y >= y1 && y < y2) || (y < y1 && y >= y2));
 
     if (possible) {
         float x1 = point1->x, x2 = point2->x;
@@ -538,10 +538,30 @@ void ttf_line_to(ttf_intersect_list *intersect_list, float y, ttf_point *point) 
     last_draw_point = *point;
 }
 
-void ttf_curve_to(ttf_intersect_list *intersect_list, float y, ttf_point *point1, ttf_point *point2) {
-    ttf_test_and_add_intersection(intersect_list, y, &last_draw_point, point1);
-    ttf_test_and_add_intersection(intersect_list, y, point1, point2);
-    last_draw_point = *point2;
+void ttf_curve_to(ttf_intersect_list *intersect_list, float y, ttf_point *control_point, ttf_point *point2) {
+    float max_distance = fabs(last_draw_point.x - point2->x) + fabs(last_draw_point.y - point2->y);
+    // At least one curve point every 4 pixels
+    int steps = floorf(max_distance / 4);
+    if (steps <= 2) {
+        ttf_test_and_add_intersection(intersect_list, y, &last_draw_point, control_point);
+        ttf_test_and_add_intersection(intersect_list, y, control_point, point2);
+        last_draw_point = *point2;
+    } else {
+        ttf_point temp;
+        for(int i = 0; i <= steps; i++) {
+            float t = (float)i / steps;
+            float t2 = t * t;
+            float t1m2 = (1 - t);
+            t1m2 *= t1m2;
+
+            temp.x = control_point->x + t1m2 * (last_draw_point.x - control_point->x) + t2 * (point2->x - control_point->x); 
+            temp.y = control_point->y + t1m2 * (last_draw_point.y - control_point->y) + t2 * (point2->y - control_point->y);
+
+            ttf_test_and_add_intersection(intersect_list, y, &last_draw_point, &temp);
+
+            last_draw_point = temp;
+        }
+    }
 }
 
 float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
@@ -771,11 +791,13 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
             longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
             
             // Validate font on load
-            // Smooth fonts a little using the off curve points
             // TODO load fonts from an sd card and cache
             // TODO render horizontally and vertically at low res/oversample?
             // TODO grid fit
             // TODO image hints relative center top left right
+            // TODO unlimited glyph coordinates
+            // TODO glyph shadow for readability
+            // TODO glyph border
             ttf_draw_glyph(&ttf, img, glyph_index, color, x_off, y_off, size_pixels, x_units, y_units);
 
             // Ensure at least one pixel gap between glyphs
