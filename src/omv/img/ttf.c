@@ -437,7 +437,7 @@ typedef struct {
 typedef struct {
     uint32_t index;
     uint32_t count;
-    ttf_intersect_list_element list[64];
+    ttf_intersect_list_element list[32];
 } ttf_intersect_list;
 
 void ttf_intersect_list_init(ttf_intersect_list *intersect_list) {
@@ -445,9 +445,11 @@ void ttf_intersect_list_init(ttf_intersect_list *intersect_list) {
 }
 
 void ttf_intersect_list_add(ttf_intersect_list *intersect_list, float x, bool d) {
-    ttf_intersect_list_element *element = &intersect_list->list[intersect_list->count++];
-    element->x = x;
-    element->d = d ? 1 : -1;
+    if (intersect_list->count < sizeof(intersect_list->list) / sizeof(ttf_intersect_list_element)) {
+        ttf_intersect_list_element *element = &intersect_list->list[intersect_list->count++];
+        element->x = x;
+        element->d = d ? 1 : -1;
+    }
 }
 
 void ttf_test_and_add_intersection(ttf_intersect_list *intersect_list, int32_t y, ttf_point *point1, ttf_point *point2) {
