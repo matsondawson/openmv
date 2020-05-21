@@ -450,8 +450,7 @@ typedef struct {
 } ttf_intersect_list;
 
 void ttf_intersect_list_init(ttf_intersect_list *intersect_list) {
-    intersect_list->index = 0;
-    intersect_list->count = 0;
+    intersect_list->index = intersect_list->count = 0;
 }
 
 void ttf_intersect_list_add(ttf_intersect_list *intersect_list, float x, bool d) {
@@ -470,15 +469,16 @@ void ttf_test_and_add_intersection(ttf_intersect_list *intersect_list, int32_t y
         float x = g * (y - y1) + x1;
         ttf_intersect_list_add(intersect_list, x, y1 > y2);
     }
-    /*else {
-        if (y1==y2 && floorf(y1) == floorf(y2) && floorf(y1) == y) {
+    else {
+        // This adds horizontal lines that are missed by scan line.
+        if (y1 == y2 && floorf(y1) == floorf(y2) && floorf(y1) == y) {
             float x1 = point1->x, x2 = point2->x;
-            if (x1 > x2) {
-                ttf_intersect_list_add(intersect_list, x1, x1 > x2);
-                ttf_intersect_list_add(intersect_list, x2, x1 <= x2);
+            if (x1 < x2) {
+                ttf_intersect_list_add(intersect_list, x1, false);
+                ttf_intersect_list_add(intersect_list, x2, true);
             }
         }
-    }*/
+    }
 }
 
 void ttf_intersect_list_sort(ttf_intersect_list *intersect_list) {
