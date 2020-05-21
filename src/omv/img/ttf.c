@@ -462,14 +462,23 @@ void ttf_intersect_list_add(ttf_intersect_list *intersect_list, float x, bool d)
 
 void ttf_test_and_add_intersection(ttf_intersect_list *intersect_list, int32_t y, ttf_point *point1, ttf_point *point2) {
     float y1 = point1->y, y2 = point2->y;
-    bool possible = (y >= y1 && y <= y2) || (y <= y1 && y >= y2);
+    bool possible = (y1 != y2) && ((y >= y1 && y <= y2) || (y <= y1 && y >= y2));
 
-    if (possible && y1 != y2) {
+    if (possible) {
         float x1 = point1->x, x2 = point2->x;
         float g = (x1 - x2) / (y1 - y2);
         float x = g * (y - y1) + x1;
         ttf_intersect_list_add(intersect_list, x, y1 > y2);
     }
+    /*else {
+        if (y1==y2 && floorf(y1) == floorf(y2) && floorf(y1) == y) {
+            float x1 = point1->x, x2 = point2->x;
+            if (x1 > x2) {
+                ttf_intersect_list_add(intersect_list, x1, x1 > x2);
+                ttf_intersect_list_add(intersect_list, x2, x1 <= x2);
+            }
+        }
+    }*/
 }
 
 void ttf_intersect_list_sort(ttf_intersect_list *intersect_list) {
@@ -480,7 +489,7 @@ void ttf_intersect_list_sort(ttf_intersect_list *intersect_list) {
 
     for(int i=0; i < count - 1; i++) {
         for(int j=0; j < count - i - 1; j++) {
-            if (list[j].x > list[j + 1].x) {
+            if (list[j].x > list[j + 1].x || (list[j].x == list[j + 1].x && list[j].d > list[j + 1].d)) {
                 float x = list[j].x;
                 list[j].x = list[j + 1].x;
                 list[j + 1].x = x;
@@ -603,23 +612,11 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
 
         // Remove leading pixels outside of range, but still calculate wheter line is inside the curve.
         {
-            float last_intersection_x = -100000;
-            int last_d = 0;
             ttf_intersect_list_element *intersect = NULL;
             
-            while ((intersect = ttf_intersect_list_get(&intersect_list))) {
-                float this_x = intersect->x;
-                int this_d = intersect->d;
-
-                if (this_x >= xMin) break;
-
-                if (last_intersection_x != this_x || last_d != this_d) {
-                    last_intersection_x = this_x;
-                    last_d = this_d;
-                    inside += this_d;
-                }
-                
-                if (!ttf_intersect_list_next(&intersect_list)) break;
+            while ((intersect = ttf_intersect_list_get(&intersect_list)) && intersect->x < xMin) {
+                inside += intersect->d;
+                ttf_intersect_list_next(&intersect_list);
             }
         }
 
@@ -627,25 +624,18 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
         const void *row_ptr = imlib_compute_row_ptr(img, y_pixel);
         
         for (int x = xMin; x <= xMax; x++) {
-            int last_d = 0;
             float last_x = -100000;
             float delta_sum = 0;
             ttf_intersect_list_element *intersect = NULL;
+            float this_x;
 
-            while((intersect = ttf_intersect_list_get(&intersect_list))) {
-                float this_x = intersect->x;
-                int this_d = intersect->d;
-
-                if (x != floorf(this_x)) break;
-
-                if (last_x != this_x || last_d != this_d) {
-                    if (inside < 0) {
-                        delta_sum += (this_x - ((last_x == -100000) ? x : last_x));
-                    }
-                    inside += this_d;
-                    last_x = this_x;
-                    last_d = this_d;
+            while((intersect = ttf_intersect_list_get(&intersect_list)) && x == floorf(this_x = intersect->x)) {
+                if (inside < 0) {
+                    delta_sum += (this_x - ((last_x == -100000) ? x : last_x));
                 }
+                inside += intersect->d;
+                last_x = this_x;
+
                 if (!ttf_intersect_list_next(&intersect_list)) break;
             }
 
@@ -654,7 +644,7 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
                 delta_sum = (inside < 0) ? 1 : 0;
             } else if (inside < 0) {
                 // Otherwise fill the remainder of the pixel
-                delta_sum += ((float)x + 1.0f - last_x);
+                delta_sum += (x + 1.0f - last_x);
             }
 
             if (delta_sum != 0) {
@@ -724,10 +714,12 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
 
             longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
             
+            // Validate font on load
             // Smooth fonts a little using the off curve points
             // TODO load fonts from an sd card and cache
             // TODO render horizontally and vertically at low res/oversample?
             // TODO grid fit
+            // TODO image hints relative center top left right
             ttf_draw_glyph(&ttf, img, glyph_index, color, x_off, y_off, size_pixels, x_units, y_units);
 
             // Ensure at least one pixel gap between glyphs
