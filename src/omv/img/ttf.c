@@ -539,14 +539,27 @@ void ttf_line_to(ttf_intersect_list *intersect_list, float y, ttf_point *point) 
 }
 
 void ttf_curve_to(ttf_intersect_list *intersect_list, float y, ttf_point *control_point, ttf_point *point2) {
-    float max_distance = fabs(last_draw_point.x - point2->x) + fabs(last_draw_point.y - point2->y);
+    float y1 = last_draw_point.y, y2 = control_point->y;
+    bool possible = (floorf(y1) == floorf(y2) && floorf(y) == floorf(y2)) || ((y >= y1 && y < y2) || (y < y1 && y >= y2));
+    if (!possible) {
+        y1 = control_point->y, y2 = point2->y;
+        possible = (floorf(y1) == floorf(y2) && floorf(y) == floorf(y2)) || ((y >= y1 && y < y2) || (y < y1 && y >= y2));
+    }
+    if (!possible) {
+        last_draw_point = *point2;
+        return;
+    }
+
+    float max_distance = IM_MAX(fabs(last_draw_point.x - point2->x), fabs(last_draw_point.y - point2->y));
     // At least one curve point every 4 pixels
-    int steps = floorf(max_distance / 4);
+    int steps = ceilf(max_distance / 4);
+    
     if (steps <= 2) {
         ttf_test_and_add_intersection(intersect_list, y, &last_draw_point, control_point);
         ttf_test_and_add_intersection(intersect_list, y, control_point, point2);
         last_draw_point = *point2;
     } else {
+        ttf_point point0 = last_draw_point;
         ttf_point temp;
         for(int i = 0; i <= steps; i++) {
             float t = (float)i / steps;
@@ -554,8 +567,8 @@ void ttf_curve_to(ttf_intersect_list *intersect_list, float y, ttf_point *contro
             float t1m2 = (1 - t);
             t1m2 *= t1m2;
 
-            temp.x = control_point->x + t1m2 * (last_draw_point.x - control_point->x) + t2 * (point2->x - control_point->x); 
-            temp.y = control_point->y + t1m2 * (last_draw_point.y - control_point->y) + t2 * (point2->y - control_point->y);
+            temp.x = control_point->x + t1m2 * (point0.x - control_point->x) + t2 * (point2->x - control_point->x); 
+            temp.y = control_point->y + t1m2 * (point0.y - control_point->y) + t2 * (point2->y - control_point->y);
 
             ttf_test_and_add_intersection(intersect_list, y, &last_draw_point, &temp);
 
@@ -791,6 +804,9 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
             longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
             
             // Validate font on load
+            // TODO Pre-convert font outline
+            // TODO sort lines by min y-start, min y-end
+            // 
             // TODO load fonts from an sd card and cache
             // TODO render horizontally and vertically at low res/oversample?
             // TODO grid fit
