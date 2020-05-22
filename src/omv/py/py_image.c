@@ -1833,7 +1833,11 @@ STATIC mp_obj_t py_image_draw_ttf(uint n_args, const mp_obj_t *args, mp_map_t *k
         py_helper_keyword_float(n_args, args, offset + 1, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_scale), 1.0);
     PY_ASSERT_TRUE_MSG(0 < arg_scale, "Error: 0 < scale!");
 
-    image_draw_ttf(arg_img, font_data_liberation_sans, arg_str, arg_color, arg_x_off, arg_y_off, arg_scale);
+    image_hint_t hint =
+        py_helper_keyword_int(n_args, args, offset + 2, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_hint), 0);
+
+
+    image_draw_ttf(arg_img, font_data_liberation_sans, arg_str, arg_color, arg_x_off, arg_y_off, arg_scale, hint);
 
     return args[0];
 }
@@ -7674,8 +7678,16 @@ static const mp_rom_map_elem_t globals_dict_table[] = {
     {MP_ROM_QSTR(MP_QSTR_CODE93),              MP_ROM_INT(BARCODE_CODE93)},
     {MP_ROM_QSTR(MP_QSTR_CODE128),             MP_ROM_INT(BARCODE_CODE128)},
 #endif
-    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_BILINEAR),MP_ROM_INT(IMAGE_HINT_BILINEAR)},
-    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_CENTER),        MP_ROM_INT(IMAGE_HINT_CENTER)},
+    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_BILINEAR), MP_ROM_INT(IMAGE_HINT_BILINEAR)},
+    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_CENTER),   MP_ROM_INT(IMAGE_HINT_CENTER)},
+    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_CENTER_VERTICAL), MP_ROM_INT(IMAGE_HINT_CENTER_VERTICAL)},
+    
+    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_ALIGN_RIGHT), MP_ROM_INT(IMAGE_HINT_ALIGN_RIGHT)},
+    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_ALIGN_BOTTOM), MP_ROM_INT(IMAGE_HINT_ALIGN_BOTTOM)},
+    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_JUSTIFY_RIGHT), MP_ROM_INT(IMAGE_HINT_JUSTIFY_RIGHT)},
+    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_JUSTIFY_CENTER), MP_ROM_INT(IMAGE_HINT_JUSTIFY_CENTER)},
+    {MP_ROM_QSTR(MP_QSTR_IMAGE_HINT_WORD_WRAP), MP_ROM_INT(IMAGE_HINT_WORD_WRAP)},
+
     {MP_ROM_QSTR(MP_QSTR_ImageWriter),         MP_ROM_PTR(&py_image_imagewriter_obj)},
     {MP_ROM_QSTR(MP_QSTR_ImageReader),         MP_ROM_PTR(&py_image_imagereader_obj)},
     {MP_ROM_QSTR(MP_QSTR_binary_to_grayscale), MP_ROM_PTR(&py_image_binary_to_grayscale_obj)},

@@ -784,47 +784,113 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
     return xMax - xMin + 1;
 }
 
-void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels) {
+void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels, image_hint_t hints) {
     ttf_t ttf;
     ttf_init(&ttf, font);
 
     int len = strlen(text);
     int x_units = 0, y_units = 0;
     uint16_t units_per_em = __REV16(ttf.head->unitsPerEm);
-    //float pixels_per_unit = size_pixels / units_per_em;
+    // float pixels_per_unit = size_pixels / units_per_em;
+
+    if (hints & (IMAGE_HINT_ALIGN_BOTTOM | IMAGE_HINT_CENTER_VERTICAL)) {
+        uint32_t line_count = 0;
+
+        // calculate how many lines in text
+        for(int i=0; i < len; i++) if (text[i] == '\n') line_count++;
+
+        if (hints & IMAGE_HINT_ALIGN_BOTTOM) {
+            y_off = img->h - 1;
+            y_units -= line_count * units_per_em;
+        }
+        if (hints & IMAGE_HINT_CENTER_VERTICAL) {
+            y_off = img->h >> 1;
+            y_units -= (line_count * units_per_em) >> 1;
+        }
+    }
+
+    int32_t max_line_width = 0, line_width = 0;
+
+    // Calculate maximum line width
+    for(int i = 0; i < len; i++) {
+        if (text[i] == '\n') {
+            max_line_width = IM_MAX(max_line_width, line_width);
+            line_width = 0;
+        }
+        else {
+            uint16_t wch = (uint16_t)text[i] & 255;
+            int glyph_index = ttf_table_cmap_char_to_index(&ttf, wch);
+            longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
+            line_width += __REV16(metrics.advanceWidth);
+        }
+    }
 
     for(int i=0; i < len; i++) {
         char ch = text[i];
-        if (ch=='\n') {
-            // Go to next line
-            x_units = 0;
-            y_units += units_per_em;
-        } else {
+        // Go to next line or is first line?
+        if (ch == '\n' || i == 0 ) {
+
+            // Calculate next lines width
+            int32_t line_width = 0;
+            for(int j = i + (ch == '\n' ? 1 : 0); j < len && text[j] != '\n'; j++) {
+                uint16_t wch = (uint16_t)text[j] & 255;
+                int glyph_index = ttf_table_cmap_char_to_index(&ttf, wch);
+                longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
+                line_width += __REV16(metrics.advanceWidth);
+            }
+
+            if (hints & IMAGE_HINT_ALIGN_RIGHT) {
+                x_off = img->w - 1;
+                if (hints & IMAGE_HINT_JUSTIFY_RIGHT) x_units = -line_width;
+                else if (hints & IMAGE_HINT_JUSTIFY_CENTER) x_units = -((max_line_width + line_width) >> 1);
+                else x_units = -max_line_width;
+            }
+            else if (hints & IMAGE_HINT_CENTER) {
+                x_off = img->w >> 1;
+                if (hints & IMAGE_HINT_JUSTIFY_RIGHT) x_units = (max_line_width >> 1) - line_width;
+                else if (hints & IMAGE_HINT_JUSTIFY_CENTER) x_units = -(line_width >> 1);
+                else x_units = -(max_line_width >> 1);
+            }
+            else {
+                // Assume left align first.
+                x_off = 0;
+                if (hints & IMAGE_HINT_JUSTIFY_RIGHT) x_units = (max_line_width - line_width);
+                else if (hints & IMAGE_HINT_JUSTIFY_CENTER) x_units = ((max_line_width - line_width) >> 1);
+                else x_units = 0;
+            }
+
+            if (ch == '\n') {
+                y_units += units_per_em;
+            }
+        }
+
+        if (ch != '\n') {
             // Draw glyph
-            int glyph_index = ttf_table_cmap_char_to_index(&ttf, ((uint16_t)ch) & 255);
+            int glyph_index = ttf_table_cmap_char_to_index(&ttf, (uint16_t)ch & 255);
 
             longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
             
-            // Validate font on load
-            // TODO Pre-convert font outline
-            // TODO sort lines by min y-start, min y-end
-            // 
-            // TODO load fonts from an sd card and cache
-            // TODO render horizontally and vertically at low res/oversample?
-            // TODO grid fit
-            // TODO image hints relative center top left right
-            // TODO unlimited glyph coordinates
-            // TODO glyph shadow for readability
-            // TODO glyph border
             ttf_draw_glyph(&ttf, img, glyph_index, color, x_off, y_off, size_pixels, x_units, y_units);
 
-            // Ensure at least one pixel gap between glyphs
             int32_t advance_width_units = __REV16(metrics.advanceWidth);
-            /*int32_t advance_width_pixels = advance_width_units * pixels_per_unit;
-            if (advance_width_pixels <= glyph_width_pixels) {
-                advance_width_units = (glyph_width_pixels + 1) / pixels_per_unit;
-            }*/
             x_units += advance_width_units;
         }
     }
 }
+
+// Validate font on load
+// TODO Pre-convert font outline
+// TODO sort lines by min y-start, min y-end
+// 
+// TODO load fonts from an sd card and cache
+// TODO render horizontally and vertically at low res/oversample?
+// TODO grid fit
+// TODO image hints relative center top left right
+// TODO unlimited glyph coordinates
+// TODO glyph shadow for readability
+// TODO glyph border
+// Ensure at least one pixel gap between glyphs
+/*int32_t advance_width_pixels = advance_width_units * pixels_per_unit;
+if (advance_width_pixels <= glyph_width_pixels) {
+advance_width_units = (glyph_width_pixels + 1) / pixels_per_unit;
+}*/

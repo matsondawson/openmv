@@ -1145,7 +1145,16 @@ typedef struct find_barcodes_list_lnk_data {
 
 typedef enum image_hint {
     IMAGE_HINT_BILINEAR = 1,
-    IMAGE_HINT_CENTER = 128
+    
+    IMAGE_HINT_CENTER = 128,
+    IMAGE_HINT_CENTER_VERTICAL = 256,
+    IMAGE_HINT_ALIGN_RIGHT = 512,
+    IMAGE_HINT_ALIGN_BOTTOM = 1024,
+
+    IMAGE_HINT_JUSTIFY_RIGHT = 4096,
+    IMAGE_HINT_JUSTIFY_CENTER = 8192,
+
+    IMAGE_HINT_WORD_WRAP = 8192
 } image_hint_t;
 
 void* imlib_compute_row_ptr(const image_t *img, int y);
@@ -1293,7 +1302,7 @@ void imlib_draw_ellipse(image_t *img, int cx, int cy, int rx, int ry, int rotati
 void imlib_draw_string(image_t *img, int x_off, int y_off, const char *str, int c, float scale, int x_spacing, int y_spacing, bool mono_space,
                        int char_rotation, bool char_hmirror, bool char_vflip, int string_rotation, bool string_hmirror, bool string_hflip);
 
-void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float scale);
+void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float scale, image_hint_t hints);
 
 void imlib_draw_image(image_t *img, image_t *other, int x_off, int y_off, float x_scale, float y_scale, int alpha, image_t *mask,
                       const uint16_t *color_palette, const uint8_t *alpha_palette, image_hint_t hint);
