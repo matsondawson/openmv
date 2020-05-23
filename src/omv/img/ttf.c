@@ -755,13 +755,13 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
                         } else {
                             uint32_t img_pixel = IMAGE_GET_GRAYSCALE_PIXEL_FAST((uint8_t*)row_ptr, x_pixel);
 
-                            IMAGE_PUT_GRAYSCALE_PIXEL_FAST((uint8_t*)row_ptr, x_pixel, ((img_pixel * (256 - alpha))>>8) + alpha );
+                            IMAGE_PUT_GRAYSCALE_PIXEL_FAST((uint8_t*)row_ptr, x_pixel, ((img_pixel * (256 - alpha))>>8) + alpha);
                         }
                         break;
                     }
                     case IMAGE_BPP_RGB565: {
                         if (alpha==255) {
-                            IMAGE_PUT_RGB565_PIXEL_FAST((uint16_t*)row_ptr, x_pixel, color );
+                            IMAGE_PUT_RGB565_PIXEL_FAST((uint16_t*)row_ptr, x_pixel, color);
                         } else {
                             uint32_t img_pixel = IMAGE_GET_RGB565_PIXEL_FAST((uint16_t*)row_ptr, x_pixel);
                             uint32_t vr = COLOR_RGB565_TO_R5(img_pixel);
@@ -784,7 +784,7 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
     return xMax - xMin + 1;
 }
 
-void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels, image_hint_t hints) {
+void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels, int align, int valign, int justify) {
     ttf_t ttf;
     ttf_init(&ttf, font);
 
@@ -793,18 +793,18 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
     uint16_t units_per_em = __REV16(ttf.head->unitsPerEm);
     // float pixels_per_unit = size_pixels / units_per_em;
 
-    if (hints & (IMAGE_HINT_ALIGN_BOTTOM | IMAGE_HINT_CENTER_VERTICAL)) {
-        uint32_t line_count = 0;
+    if (valign >= 0) {
+        uint32_t line_count = 1;
 
         // calculate how many lines in text
         for(int i=0; i < len; i++) if (text[i] == '\n') line_count++;
 
-        if (hints & IMAGE_HINT_ALIGN_BOTTOM) {
-            y_off = img->h - 1;
+        if (valign == 1) {
+            y_off = img->h - 1 - y_off;
             y_units -= line_count * units_per_em;
         }
-        if (hints & IMAGE_HINT_CENTER_VERTICAL) {
-            y_off = img->h >> 1;
+        if (valign == 0) {
+            y_off = (img->h >> 1) - y_off;
             y_units -= (line_count * units_per_em) >> 1;
         }
     }
@@ -824,6 +824,9 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
             line_width += __REV16(metrics.advanceWidth);
         }
     }
+    max_line_width = IM_MAX(max_line_width, line_width);
+
+    int x_off_i = x_off;
 
     for(int i=0; i < len; i++) {
         char ch = text[i];
@@ -839,23 +842,22 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
                 line_width += __REV16(metrics.advanceWidth);
             }
 
-            if (hints & IMAGE_HINT_ALIGN_RIGHT) {
-                x_off = img->w - 1;
-                if (hints & IMAGE_HINT_JUSTIFY_RIGHT) x_units = -line_width;
-                else if (hints & IMAGE_HINT_JUSTIFY_CENTER) x_units = -((max_line_width + line_width) >> 1);
+            if (align == 1) {
+                x_off = img->w - 1 - x_off_i;
+                if (justify == 1) x_units = -line_width;
+                else if (justify == 0) x_units = -((max_line_width + line_width) >> 1);
                 else x_units = -max_line_width;
-            }
-            else if (hints & IMAGE_HINT_CENTER) {
-                x_off = img->w >> 1;
-                if (hints & IMAGE_HINT_JUSTIFY_RIGHT) x_units = (max_line_width >> 1) - line_width;
-                else if (hints & IMAGE_HINT_JUSTIFY_CENTER) x_units = -(line_width >> 1);
+            } else if (align == 0) {
+                x_off = (img->w >> 1) - x_off_i;
+                if (justify == 1) x_units = (max_line_width >> 1) - line_width;
+                else if (justify == 0) x_units = -(line_width >> 1);
                 else x_units = -(max_line_width >> 1);
             }
             else {
                 // Assume left align first.
-                x_off = 0;
-                if (hints & IMAGE_HINT_JUSTIFY_RIGHT) x_units = (max_line_width - line_width);
-                else if (hints & IMAGE_HINT_JUSTIFY_CENTER) x_units = ((max_line_width - line_width) >> 1);
+                x_off = x_off_i;
+                if (justify == 1) x_units = (max_line_width - line_width);
+                else if (justify == 0) x_units = ((max_line_width - line_width) >> 1);
                 else x_units = 0;
             }
 
