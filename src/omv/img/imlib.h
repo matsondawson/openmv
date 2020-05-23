@@ -75,7 +75,9 @@
 #define IM_DEG2RAD(x)   (((x)*M_PI)/180)
 #define IM_RAD2DEG(x)   (((x)*180)/M_PI)
 
-extern const uint8_t font_data_liberation_sans[];
+extern const unsigned char font_data_liberation_sans[];
+extern const unsigned char font_data_liberation_serif[];
+extern const unsigned char font_data_liberation_mono[];
 
 /////////////////
 // Point Stuff //

@@ -40,7 +40,7 @@ SRCS += $(addprefix img/,   \
 	clahe.c                 \
 	draw.c                  \
 	ttf.c                   \
-	ttf_font_liberation_sans.c\
+	ttf_fonts.c\
 	qrcode.c                \
 	apriltag.c              \
 	dmtx.c                  \

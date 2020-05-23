@@ -18,7 +18,8 @@
 
 #include "py_assert.h"
 
-#define ttf_assert PY_ASSERT_TRUE_MSG
+#define ttf_error(msg) PY_ASSERT_TRUE_MSG(true, msg);
+#define ttf_assert(cond,msg) PY_ASSERT_TRUE_MSG(cond,msg)
 
 #define ttf_fixed int32_t
 #define ttf_fword int16_t
@@ -209,12 +210,38 @@ typedef struct {
         const void *data;
         const ttf_offset_subtable_t* offset_subtable;
     };
-} ttf_t;
+} ttf_font_instance;
+
+
+typedef struct ttf_point {
+    float x, y;
+    uint8_t flags;
+} ttf_point;
+
+typedef struct {
+    uint16_t numPoints;
+    uint16_t *endPtsOfContours;//	Array of last points of each contour; n is the number of contours; array entries are point indices
+    uint16_t instructionLength;//	Total number of bytes needed for instructions
+    uint8_t	*instructions; // Array of instructions for this glyph
+    ttf_point	*coordinates;
+} ttf_glyph_data;
+
+
+typedef struct {
+    float x;
+    int8_t d;
+} ttf_intersect_list_element;
+
+typedef struct {
+    uint32_t index;
+    uint32_t count;
+    ttf_intersect_list_element list[32];
+} ttf_intersect_list;
 
 
 /************************************************* truetypefont object functions *************************************************/
 
-const void* ttf_find_table(ttf_t* ttf, char *tag) {
+const void* ttf_find_table(ttf_font_instance* ttf, char *tag) {
     ttf_table_directory* table_directory = (ttf_table_directory*)(ttf->data + sizeof(ttf_offset_subtable_t));
     for(int i = 0; i < __REV16(ttf->offset_subtable->numTables); i++) {
         if (table_directory->tag == *(uint32_t*)tag) {
@@ -226,7 +253,7 @@ const void* ttf_find_table(ttf_t* ttf, char *tag) {
     return NULL;
 }
 
-void ttf_init(ttf_t* ttf, const uint8_t *data) {
+void ttf_init(ttf_font_instance* ttf, const uint8_t *data) {
     ttf->data = data;
     ttf->head = ttf_find_table(ttf, "head");
     ttf_assert(ttf->head != NULL, "No head table");
@@ -242,22 +269,29 @@ void ttf_init(ttf_t* ttf, const uint8_t *data) {
     ttf_assert(ttf->longHorMetric != NULL, "No hmtx table");
 }
 
-longHorMetric ttf_get_horizontal_metrics(ttf_t* ttf, uint32_t glyphIndex) {
+longHorMetric ttf_get_horizontal_metrics(ttf_font_instance* ttf, uint32_t glyphIndex) {
     // If glyph exists in table
     uint16_t numOfLongHorMetrics = __REV16(ttf->hhea->numOfLongHorMetrics);
     
     return ttf->longHorMetric[(glyphIndex < numOfLongHorMetrics) ? glyphIndex : (numOfLongHorMetrics - 1)];
 }
 
-const ttf_table_glyf *ttf_get_glyph_ptr(ttf_t* ttf, uint32_t index) {
+/**
+ * Find glyph in the glyph table using hte loca table.
+ *
+ * @param ttf Truetype font instance.
+ * @param glyph_index Index of glyph.
+ * @return Pointer to the glyph in the 'glyf' table if found else NULL
+ */
+const ttf_table_glyf *ttf_get_glyph_ptr(ttf_font_instance* ttf, uint32_t glyph_index) {
     uint32_t offset, next;
 
     if (__REV16(ttf->head->indexToLocFormat) == 1) {
-        uint32_t *ptr = ((uint32_t*)(ttf->loca)) + index;
+        uint32_t *ptr = ((uint32_t*)(ttf->loca)) + glyph_index;
         offset = __REV(*(ptr++));
         next = __REV(*ptr);
     } else {
-        uint16_t *ptr = (uint16_t*)(ttf->loca) + index;
+        uint16_t *ptr = (uint16_t*)(ttf->loca) + glyph_index;
         offset = __REV16(*(ptr++)) << 1;
         next = __REV16(*ptr) << 1;
     }
@@ -268,46 +302,46 @@ const ttf_table_glyf *ttf_get_glyph_ptr(ttf_t* ttf, uint32_t index) {
     return (void*)ttf->glyf + offset;
 }
 
-typedef struct ttf_point {
-    float x, y;
-    uint8_t flags;
-} ttf_point;
+/**
+ * Read an interpret the glyph from the 'glyf' table.
+ *
+ * @param ttf Truetype font instance.
+ * @param glyph_data Where to put the interpreted data.
+ * @param glyph_index Index of glyph.
+ */
+bool ttf_read_glyph(ttf_font_instance* ttf, ttf_glyph_data *glyph_data, uint32_t glyph_index) {
+    const ttf_table_glyf *glyph = ttf_get_glyph_ptr(ttf, glyph_index);
 
-typedef struct {
-    uint16_t numPoints;
-    uint16_t *endPtsOfContours;//	Array of last points of each contour; n is the number of contours; array entries are point indices
-    uint16_t instructionLength;//	Total number of bytes needed for instructions
-    uint8_t	*instructions; // Array of instructions for this glyph
-    ttf_point	coordinates[64];
-} ttf_glyph_data;
+    // Glyph is not in the font table.
+    if (!glyph) return false;
 
-bool ttf_read_glyph(ttf_t* ttf, ttf_glyph_data *glyph_data, uint32_t index) {
-    const ttf_table_glyf *glyph = ttf_get_glyph_ptr(ttf, index);
-
-    if (glyph == NULL) return false;
+    // Glyph is probably space
     if (!glyph->numberOfContours) return false;
 
     glyph_data->endPtsOfContours = (void*)glyph + sizeof(ttf_table_glyf);
     
     uint16_t numberOfContours = __REV16(glyph->numberOfContours);
     
+    // Total number of points is the max of endPtsOfContours+1
     int numPoints = -1;
     for(int i = 0; i < numberOfContours; i++) {
         uint16_t v = __REV16(glyph_data->endPtsOfContours[i]);
         if (v > numPoints) numPoints = v;
     }
-
     numPoints++;
+
+    // Allocate space for interpreted coordinates, this is freed in the function calling this
+    glyph_data->coordinates = fb_alloc(numPoints * sizeof(ttf_point), FB_ALLOC_NO_HINT);
     glyph_data->numPoints = numPoints;
     glyph_data->instructionLength = __REV16( *(glyph_data->endPtsOfContours + numberOfContours) );
     glyph_data->instructions = (uint8_t*)(glyph_data->endPtsOfContours + numberOfContours + 1);
+
     uint8_t *flags = (glyph_data->instructions + glyph_data->instructionLength);
 
     if (numberOfContours == -1) {
-        // Error
-        // this.readCompoundGlyph(file, glyph);
-        return false;
+        ttf_error("Compound glyphs not supported");
     } else {
+        // Copy flags to coordinates
         int i=0;
         for (int point = 0; point < numPoints;) {
             uint8_t flag = flags[i++];
@@ -317,7 +351,6 @@ bool ttf_read_glyph(ttf_t* ttf, ttf_glyph_data *glyph_data, uint32_t index) {
 
             if (flag & REPEAT) {
                 int repeatCount = flags[i++];
-                // assert(repeatCount > 0);
                 while (repeatCount--) {
                     glyph_data->coordinates[point].x = 0;
                     glyph_data->coordinates[point].y = 0;
@@ -325,46 +358,39 @@ bool ttf_read_glyph(ttf_t* ttf, ttf_glyph_data *glyph_data, uint32_t index) {
                 }
             }
         }
-        uint8_t *coordinates = ((void*)flags) + i;
+        
+        uint8_t *encoded_coordinate_data = ((void*)flags) + i;
 
+        // Decode x coordinates
         {
             int16_t value = 0;
 
             for (int i = 0; i < numPoints; i++) {
                 uint8_t flag = glyph_data->coordinates[i].flags;
                 if (flag & X_IS_BYTE) {
-                    if (flag & X_DELTA) {
-                        value += *(coordinates++);
-                    } else {
-                        value -= *(coordinates++);
-                    }
+                    uint8_t d = *(encoded_coordinate_data++);
+                    if (flag & X_DELTA) value += d; else  value -= d;
                 } else if (~flag & X_DELTA) {
-                    value += __REV16(*(int16_t*)coordinates);
-                    coordinates += 2;
-                } else {
-                    // value is unchanged.
+                    value += __REV16(*(int16_t*)encoded_coordinate_data);
+                    encoded_coordinate_data += 2;
                 }
 
                 glyph_data->coordinates[i].x = value;
             }
         }
 
+        // Decode y coordinates
         {
             int16_t value = 0;
 
             for (int i = 0; i < numPoints; i++) {
                 uint8_t flag = glyph_data->coordinates[i].flags;
                 if (flag & Y_IS_BYTE) {
-                    if (flag & Y_DELTA) {
-                        value += *(coordinates++);
-                    } else {
-                        value -= *(coordinates++);
-                    }
+                    uint8_t d = *(encoded_coordinate_data++);
+                    if (flag & Y_DELTA) value += d; else  value -= d;
                 } else if (~flag & Y_DELTA) {
-                    value += __REV16(*(int16_t*)coordinates);
-                    coordinates += 2;
-                } else {
-                    // value is unchanged.
+                    value += __REV16(*(int16_t*)encoded_coordinate_data);
+                    encoded_coordinate_data += 2;
                 }
 
                 glyph_data->coordinates[i].y = value;
@@ -375,7 +401,14 @@ bool ttf_read_glyph(ttf_t* ttf, ttf_glyph_data *glyph_data, uint32_t index) {
     return true;
 }
 
-int ttf_table_cmap_char_to_index(ttf_t* ttf, uint16_t charCode) {
+/**
+ * Convert character code to glyph index.
+ *
+ * @param ttf Truetype font instance.
+ * @param char_code Character code.
+ * @return Index of glyph.
+ */
+int ttf_table_cmap_char_to_index(ttf_font_instance* ttf, uint16_t char_code) {
     for (int i = 0; i < __REV16(ttf->cmap->numberSubtables); i++) {
         // platforms are: 
         // 0 - Unicode -- use specific id 6 for full coverage. 0/4 common.
@@ -393,15 +426,13 @@ int ttf_table_cmap_char_to_index(ttf_t* ttf, uint16_t charCode) {
 
             if (format == 0) {
                 table_cmap_format_0 *cmap0 = cmap_table_ptr;
-                if (charCode >= 0 && charCode < 256) {
-                    return cmap0->glyphIndexArray[charCode];
+                if (char_code >= 0 && char_code < 256) {
+                    return cmap0->glyphIndexArray[char_code];
                 }
             } else if (format == 4) {
-
                 table_cmap_format_4 *cmap4 = cmap_table_ptr;
 
                 uint16_t segCount = __REV16(cmap4->segCountX2) >> 1;
-
                 uint16_t *endCode_ptr= &(cmap4->endCode0);
                 uint16_t *startCode_ptr= endCode_ptr + segCount + 1;
                 uint16_t *idDelta_ptr= startCode_ptr + segCount;
@@ -409,36 +440,30 @@ int ttf_table_cmap_char_to_index(ttf_t* ttf, uint16_t charCode) {
                 // uint16_t *glyphIndexArray_ptr = idRangeOffset_ptr + segCount;
                 
                 for(int segment_index=0; segment_index < segCount; segment_index++) {
-                    if (__REV16(startCode_ptr[segment_index]) <= charCode && __REV16(endCode_ptr[segment_index]) >= charCode) {
+                    if (__REV16(startCode_ptr[segment_index]) <= char_code && __REV16(endCode_ptr[segment_index]) >= char_code) {
                         uint16_t index;
                         if (idRangeOffset_ptr[segment_index]) {
-                            uint16_t *glyphIndexAddress = &(idRangeOffset_ptr[segment_index]) + (__REV16(idRangeOffset_ptr[segment_index]) / 2) + (charCode - __REV16(startCode_ptr[segment_index]));
+                            uint16_t *glyphIndexAddress = &(idRangeOffset_ptr[segment_index]) + (__REV16(idRangeOffset_ptr[segment_index]) / 2) + (char_code - __REV16(startCode_ptr[segment_index]));
                             index = __REV16(*glyphIndexAddress);
                         } else {
-                            index = (__REV16(idDelta_ptr[segment_index]) + charCode) & 0xffff;
+                            index = (__REV16(idDelta_ptr[segment_index]) + char_code) & 0xffff;
                         }
 
                         return index;
                     }
                 }
             }
+            else {
+                ttf_error("Unsupported cmap format");
+            }
         }
-        // else ? TODO Error unknown format
+        else {
+            ttf_error("Unsupported cmap platformId");
+        }
     }
     
     return 0;
 }
-
-typedef struct {
-    float x;
-    int8_t d;
-} ttf_intersect_list_element;
-
-typedef struct {
-    uint32_t index;
-    uint32_t count;
-    ttf_intersect_list_element list[32];
-} ttf_intersect_list;
 
 void ttf_intersect_list_init(ttf_intersect_list *intersect_list) {
     intersect_list->index = intersect_list->count = 0;
@@ -554,7 +579,8 @@ void ttf_curve_to(ttf_intersect_list *intersect_list, float y, ttf_point *contro
 
     float max_distance = IM_MAX(fabs(last_draw_point.x - point2->x), fabs(last_draw_point.y - point2->y));
     // At least one curve point every 4 pixels
-    int steps = ceilf(max_distance / 4);
+    int steps = ceilf(max_distance / 2);
+    steps = (steps + 1) & ~1;
     
     if (steps <= 2) {
         ttf_test_and_add_intersection(intersect_list, y, &last_draw_point, control_point);
@@ -579,7 +605,7 @@ void ttf_curve_to(ttf_intersect_list *intersect_list, float y, ttf_point *contro
     }
 }
 
-float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
+float ttf_draw_glyph(ttf_font_instance* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
     const ttf_table_glyf *glyf = ttf_get_glyph_ptr(ttf, glyph_index);
     
     // glyph not found, probably space character
@@ -613,7 +639,9 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
     int32_t offset_y_pixels = floorf(location_y + offset_y_units * pixels_per_unit);
     
     ttf_glyph_data glyph_data;
-    ttf_read_glyph(ttf, &glyph_data, glyph_index);
+    if (!ttf_read_glyph(ttf, &glyph_data, glyph_index)) {
+        return 0;
+    }
     
     // Round?
     int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * pixels_per_unit);
@@ -768,9 +796,10 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
                             uint32_t vg = COLOR_RGB565_TO_G6(img_pixel);
                             uint32_t vb = COLOR_RGB565_TO_B5(img_pixel);
 
-                            vr = ((vr * (256 - alpha)) + (fr * alpha)) >> 8;
-                            vg = ((vg * (256 - alpha)) + (fg * alpha)) >> 8;
-                            vb = ((vb * (256 - alpha)) + (fb * alpha)) >> 8;
+                            uint32_t malpha = 256 - alpha;
+                            vr = ((vr * malpha) + (fr * alpha)) >> 8;
+                            vg = ((vg * malpha) + (fg * alpha)) >> 8;
+                            vb = ((vb * malpha) + (fb * alpha)) >> 8;
 
                             IMAGE_PUT_RGB565_PIXEL_FAST((uint16_t*)row_ptr, x_pixel, COLOR_R5_G6_B5_TO_RGB565(vr, vg, vb));
                         }
@@ -778,6 +807,11 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
                     }
                 }
             }
+            /*else if (intersect) {
+                // skip empty pixels
+                int delta = floorf(intersect->x) - x - 1;
+                x += delta;
+            }*/
         }
     }
 
@@ -785,7 +819,7 @@ float ttf_draw_glyph(ttf_t* ttf, image_t *img, uint16_t glyph_index, uint32_t co
 }
 
 void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels, int align, int valign, int justify) {
-    ttf_t ttf;
+    ttf_font_instance ttf;
     ttf_init(&ttf, font);
 
     int len = strlen(text);
@@ -872,7 +906,9 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
 
             longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
             
+            fb_alloc_mark();
             ttf_draw_glyph(&ttf, img, glyph_index, color, x_off, y_off, size_pixels, x_units, y_units);
+            fb_alloc_free_till_mark();
 
             int32_t advance_width_units = __REV16(metrics.advanceWidth);
             x_units += advance_width_units;

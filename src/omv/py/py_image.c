@@ -1827,20 +1827,24 @@ STATIC mp_obj_t py_image_draw_ttf(uint n_args, const mp_obj_t *args, mp_map_t *k
     int arg_y_off = mp_obj_get_int(arg_vec[1]);
     const char *arg_str = mp_obj_str_get_str(arg_vec[2]);
 
+    int arg_font =
+        py_helper_keyword_int(n_args, args, offset + 0, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_font), 0);
+
     uint32_t arg_color =
-        py_helper_keyword_color(arg_img, n_args, args, offset + 0, kw_args, -1); // White.
+        py_helper_keyword_color(arg_img, n_args, args, offset + 1, kw_args, -1); // White.
     float arg_scale =
-        py_helper_keyword_float(n_args, args, offset + 1, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_scale), 1.0);
+        py_helper_keyword_float(n_args, args, offset + 2, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_scale), 1.0);
     PY_ASSERT_TRUE_MSG(0 < arg_scale, "Error: 0 < scale!");
 
     int arg_align  =
-        py_helper_keyword_int(n_args, args, offset + 2, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_align), -1);
+        py_helper_keyword_int(n_args, args, offset + 3, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_align), -1);
     int arg_valign  =
-        py_helper_keyword_int(n_args, args, offset + 3, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_valign), -1);
+        py_helper_keyword_int(n_args, args, offset + 4, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_valign), -1);
     int arg_justify =
-        py_helper_keyword_int(n_args, args, offset + 4, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_justify), -1);
+        py_helper_keyword_int(n_args, args, offset + 5, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_justify), -1);
 
-    image_draw_ttf(arg_img, font_data_liberation_sans, arg_str, arg_color, arg_x_off, arg_y_off, arg_scale, arg_align, arg_valign, arg_justify);
+    image_draw_ttf(arg_img, arg_font==0?font_data_liberation_sans:arg_font==1?font_data_liberation_serif:font_data_liberation_mono,
+        arg_str, arg_color, arg_x_off, arg_y_off, arg_scale, arg_align, arg_valign, arg_justify);
 
     return args[0];
 }
