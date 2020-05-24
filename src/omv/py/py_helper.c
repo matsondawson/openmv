@@ -180,6 +180,21 @@ void py_helper_keyword_int_array(uint n_args, const mp_obj_t *args, uint arg_ind
     }
 }
 
+void py_helper_keyword_int_array_size(uint n_args, const mp_obj_t *args, uint arg_index,
+                                        mp_map_t *kw_args, mp_obj_t kw, size_t *size)
+{
+    mp_map_elem_t *kw_arg = mp_map_lookup(kw_args, kw, MP_MAP_LOOKUP);
+
+    *size = 0;
+    mp_obj_t *arg_array;
+    if (kw_arg) {
+        mp_obj_get_array(kw_arg->value, size, &arg_array);
+    } else if (n_args > arg_index) {
+        mp_obj_get_array(args[arg_index], size, &arg_array);
+    }
+}
+
+
 void py_helper_keyword_float_array(uint n_args, const mp_obj_t *args, uint arg_index,
                                    mp_map_t *kw_args, mp_obj_t kw, float *x, int size)
 {

@@ -562,6 +562,7 @@ Q(font)
 Q(justify)
 Q(align)
 Q(valign)
+Q(tabs)
 
 // Draw Keypoints
 Q(draw_keypoints)

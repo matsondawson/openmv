@@ -537,25 +537,38 @@ bool ttf_intersect_list_next(ttf_intersect_list *intersect_list) {
     return false;
 }
 
-void ttf_grid_fit(ttf_font_instance* ttf, ttf_glyph_data *glyph_data) {
+typedef struct {
+    int min_x;
+    int min_y;
+    int max_x;
+    int max_y;
+} ttf_bounds;
+
+// returns new min/max
+ttf_bounds ttf_grid_fit(ttf_font_instance* ttf, ttf_glyph_data *glyph_data) {
     float longest_x = 10000, max_len = 0;
     float min_x = 10000, max_x = -10000;
+    float min_y = 10000, max_y = -10000;
 
     for (int i = 0; i < glyph_data->numPoints; i++) {
         float x2 = glyph_data->coordinates[i].x;
+        float y2 = glyph_data->coordinates[i].y;
 
         min_x = IM_MIN(x2, min_x);
         max_x = IM_MAX(x2, max_x);
+        min_y = IM_MIN(y2, min_y);
+        max_y = IM_MAX(y2, max_y);
 
         if (i > 0) {
+            // Search for the x-coordinate with the longest line segment
             float x1 = glyph_data->coordinates[i-1].x;
 
             if (x1 == x2) {
                 float y1 = glyph_data->coordinates[i-1].y;
-                float y2 = glyph_data->coordinates[i].y;
-
                 float len = fabs(y1-y2);
-                if (len > max_len) {
+
+                // if lengths are equal, choose the left most length
+                if (len > max_len || (len == max_len && x1 < longest_x)) {
                     longest_x = x1;
                     max_len = len;
                 }
@@ -565,10 +578,14 @@ void ttf_grid_fit(ttf_font_instance* ttf, ttf_glyph_data *glyph_data) {
 
     float shift_x = longest_x - floorf(longest_x);
 
+    // We want to shift to the closest pixel
+    //if (shift_x > 0.5) shift_x -= 1.0f;
+
     for (int i = 0; i < glyph_data->numPoints; i++) {
-        glyph_data->coordinates[i].x -= shift_x;
+        ttf_point *c = &glyph_data->coordinates[i];
+        /*if (c->x <= longest_x) */c->x -= shift_x;
     }
-    longest_x = floorf(longest_x);
+    longest_x = longest_x - shift_x;
 
     float width = max_x - min_x;
     float x_mid = min_x + (width / 2);
@@ -596,6 +613,25 @@ void ttf_grid_fit(ttf_font_instance* ttf, ttf_glyph_data *glyph_data) {
             glyph_data->coordinates[i].x = longest_x + (glyph_data->coordinates[i].x - longest_x) * scale;
         }
     }
+
+    // Align verticals
+    // We need biggest horizontal to match to grid?
+
+    // Recalculate bounds
+    min_x = min_y = 10000;
+    max_x = max_y = -10000;
+
+    for (int i = 0; i < glyph_data->numPoints; i++) {
+        float x2 = glyph_data->coordinates[i].x;
+        float y2 = glyph_data->coordinates[i].y;
+
+        min_x = IM_MIN(x2, min_x);
+        max_x = IM_MAX(x2, max_x);
+        min_y = IM_MIN(y2, min_y);
+        max_y = IM_MAX(y2, max_y);
+    }
+
+    return (ttf_bounds){ min_x, min_y, max_x, max_y };
 }
 
 ttf_point last_draw_point;
@@ -649,11 +685,11 @@ void ttf_curve_to(ttf_intersect_list *intersect_list, float y, ttf_point *contro
     }
 }
 
-float ttf_draw_glyph(ttf_font_instance* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
+void ttf_draw_glyph(ttf_font_instance* ttf, image_t *img, uint16_t glyph_index, uint32_t color, int32_t location_x, int32_t location_y, float size_pixels, int32_t offset_x_units, int32_t offset_y_units) {
     const ttf_table_glyf *glyf = ttf_get_glyph_ptr(ttf, glyph_index);
     
     // glyph not found, probably space character
-    if (!glyf) return 0;
+    if (!glyf) return;
 
     // Clean and convert color to pixel format
     uint32_t fr = 0, fg = 0, fb = 0;
@@ -684,12 +720,15 @@ float ttf_draw_glyph(ttf_font_instance* ttf, image_t *img, uint16_t glyph_index,
     
     ttf_glyph_data glyph_data;
     if (!ttf_read_glyph(ttf, &glyph_data, glyph_index)) {
-        return 0;
+        return;
     }
     
     // Round?
-    int32_t xMin = floorf(((int16_t)__REV16(glyf->xMin)) * pixels_per_unit);
-    int32_t xMax = ceilf(((int16_t)__REV16(glyf->xMax)) * pixels_per_unit);
+    float x_minf = ((int16_t)__REV16(glyf->xMin)) * pixels_per_unit;
+    float x_maxf = ((int16_t)__REV16(glyf->xMax)) * pixels_per_unit;
+
+    int32_t xMin = floorf(x_minf);
+    int32_t xMax = ceilf(x_maxf);
     int32_t yMin = floorf(((int16_t)__REV16(glyf->yMin)) * pixels_per_unit);
     int32_t yMax = ceilf(((int16_t)__REV16(glyf->yMax)) * pixels_per_unit);
     
@@ -709,14 +748,18 @@ float ttf_draw_glyph(ttf_font_instance* ttf, image_t *img, uint16_t glyph_index,
         xMax = (img->w - offset_x_pixels- 1);
     }
 
-    if (xMin > xMax || yMin > yMax) return 0;
+    if (xMin > xMax || yMin > yMax) return;
     
     for (int i = 0; i < glyph_data.numPoints; i++) {
         glyph_data.coordinates[i].x *= pixels_per_unit;
         glyph_data.coordinates[i].y *= pixels_per_unit;
     }
 
-    ttf_grid_fit(ttf, &glyph_data);
+    ttf_bounds bounds = ttf_grid_fit(ttf, &glyph_data);
+    xMin = bounds.min_x;
+    xMax = bounds.max_x;
+    yMin = bounds.min_y;
+    yMax = bounds.max_y;
 
     ttf_intersect_list intersect_list;
     for (int y = yMin; y <= yMax ; y++) {
@@ -813,10 +856,13 @@ float ttf_draw_glyph(ttf_font_instance* ttf, image_t *img, uint16_t glyph_index,
             if (delta_sum != 0) {
                 int32_t x_pixel = offset_x_pixels + x;
                 uint32_t alpha = delta_sum * 255;
+                if (alpha > 8) {
+                    alpha = 128 + (alpha >> 1);
+                }
 
                 switch(img->bpp) {
                     case IMAGE_BPP_BINARY: {
-                        if (alpha >> 7) {
+                        if (alpha > 16) {
                             IMAGE_PUT_BINARY_PIXEL_FAST((uint32_t*)row_ptr, x_pixel, 1);
                         }
                         break;
@@ -858,18 +904,16 @@ float ttf_draw_glyph(ttf_font_instance* ttf, image_t *img, uint16_t glyph_index,
             }*/
         }
     }
-
-    return xMax - xMin + 1;
 }
 
-void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels, int align, int valign, int justify) {
+void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float size_pixels, int align, int valign, int justify, int *tab_indexes, size_t tab_count) {
     ttf_font_instance ttf;
     ttf_init(&ttf, font);
 
     int len = strlen(text);
     int x_units = 0, y_units = 0;
     uint16_t units_per_em = __REV16(ttf.head->unitsPerEm);
-    // float pixels_per_unit = size_pixels / units_per_em;
+    //float pixels_per_unit = size_pixels / units_per_em;
 
     if (valign >= 0) {
         uint32_t line_count = 1;
@@ -890,16 +934,27 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
     int32_t max_line_width = 0, line_width = 0;
 
     // Calculate maximum line width
+    int tab_index = 0;
     for(int i = 0; i < len; i++) {
         if (text[i] == '\n') {
             max_line_width = IM_MAX(max_line_width, line_width);
-            line_width = 0;
+            line_width = tab_index = 0;
         }
         else {
-            uint16_t wch = (uint16_t)text[i] & 255;
-            int glyph_index = ttf_table_cmap_char_to_index(&ttf, wch);
-            longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
-            line_width += __REV16(metrics.advanceWidth);
+            if (text[i] == '\t') {
+                int width_units = 0;
+                while(tab_index < tab_count && ((width_units = tab_indexes[tab_index++] * units_per_em) < line_width));
+                if (width_units > line_width) {
+                    line_width = width_units;
+                } else {
+                    line_width = ((int)(line_width / units_per_em) + 1) * units_per_em ;
+                }
+            } else {
+                uint16_t wch = (uint16_t)text[i] & 255;
+                int glyph_index = ttf_table_cmap_char_to_index(&ttf, wch);
+                longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
+                line_width += __REV16(metrics.advanceWidth);
+            }
         }
     }
     max_line_width = IM_MAX(max_line_width, line_width);
@@ -910,14 +965,25 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
         char ch = text[i];
         // Go to next line or is first line?
         if (ch == '\n' || i == 0 ) {
+            tab_index = 0;
 
             // Calculate next lines width
             int32_t line_width = 0;
             for(int j = i + (ch == '\n' ? 1 : 0); j < len && text[j] != '\n'; j++) {
                 uint16_t wch = (uint16_t)text[j] & 255;
-                int glyph_index = ttf_table_cmap_char_to_index(&ttf, wch);
-                longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
-                line_width += __REV16(metrics.advanceWidth);
+                if (text[i] == '\t') {
+                    int width_units = 0;
+                    while(tab_index < tab_count && ((width_units = tab_indexes[tab_index++] * units_per_em) < line_width));
+                    if (width_units > line_width) {
+                        line_width = width_units;
+                    } else {
+                        line_width = ((int)(line_width / units_per_em) + 1) * units_per_em ;
+                    }
+                } else {
+                    int glyph_index = ttf_table_cmap_char_to_index(&ttf, wch);
+                    longHorMetric metrics = ttf_get_horizontal_metrics(&ttf, glyph_index);
+                    line_width += __REV16(metrics.advanceWidth);
+                }
             }
 
             if (align == 1) {
@@ -941,9 +1007,19 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
             if (ch == '\n') {
                 y_units += units_per_em;
             }
+
+            tab_index = 0;
         }
 
-        if (ch != '\n') {
+        if (text[i] == '\t') {
+            int width_units = 0;
+            while(tab_index < tab_count && ((width_units = tab_indexes[tab_index++] * units_per_em) < x_units));
+            if (width_units > x_units) {
+                x_units = width_units;
+            } else {
+                x_units = ((int)(x_units / units_per_em) + 1) * units_per_em ;
+            }
+        } else if (ch != '\n') {
             // Draw glyph
             int glyph_index = ttf_table_cmap_char_to_index(&ttf, (uint16_t)ch & 255);
 
@@ -962,16 +1038,8 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
 // Validate font on load
 // TODO Pre-convert font outline
 // TODO sort lines by min y-start, min y-end
+// TODO tabs
+// TODO return dimensions on rendered text
 // 
 // TODO load fonts from an sd card and cache
 // TODO render horizontally and vertically at low res/oversample?
-// TODO grid fit
-// TODO image hints relative center top left right
-// TODO unlimited glyph coordinates
-// TODO glyph shadow for readability
-// TODO glyph border
-// Ensure at least one pixel gap between glyphs
-/*int32_t advance_width_pixels = advance_width_units * pixels_per_unit;
-if (advance_width_pixels <= glyph_width_pixels) {
-advance_width_units = (glyph_width_pixels + 1) / pixels_per_unit;
-}*/

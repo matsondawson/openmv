@@ -76,7 +76,6 @@
 #define IM_RAD2DEG(x)   (((x)*180)/M_PI)
 
 extern const unsigned char font_data_liberation_sans[];
-extern const unsigned char font_data_liberation_serif[];
 extern const unsigned char font_data_liberation_mono[];
 
 /////////////////
@@ -1296,7 +1295,7 @@ void imlib_draw_ellipse(image_t *img, int cx, int cy, int rx, int ry, int rotati
 void imlib_draw_string(image_t *img, int x_off, int y_off, const char *str, int c, float scale, int x_spacing, int y_spacing, bool mono_space,
                        int char_rotation, bool char_hmirror, bool char_vflip, int string_rotation, bool string_hmirror, bool string_hflip);
 
-void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float scale, int align, int valign, int justify);
+void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_t color, int x_off, int y_off, float scale, int align, int valign, int justify, int *tab_indexes, size_t tab_count);
 
 void imlib_draw_image(image_t *img, image_t *other, int x_off, int y_off, float x_scale, float y_scale, int alpha, image_t *mask,
                       const uint16_t *color_palette, const uint8_t *alpha_palette, image_hint_t hint);

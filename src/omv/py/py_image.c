@@ -1843,8 +1843,14 @@ STATIC mp_obj_t py_image_draw_ttf(uint n_args, const mp_obj_t *args, mp_map_t *k
     int arg_justify =
         py_helper_keyword_int(n_args, args, offset + 5, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_justify), -1);
 
-    image_draw_ttf(arg_img, arg_font==0?font_data_liberation_sans:arg_font==1?font_data_liberation_serif:font_data_liberation_mono,
-        arg_str, arg_color, arg_x_off, arg_y_off, arg_scale, arg_align, arg_valign, arg_justify);
+    size_t tab_count;
+    py_helper_keyword_int_array_size(n_args, args, offset + 6, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_tabs), &tab_count);
+    int *tab_indexes = fb_alloc(tab_count * sizeof(int), FB_ALLOC_NO_HINT);
+    py_helper_keyword_int_array(n_args, args, offset + 6, kw_args, MP_OBJ_NEW_QSTR(MP_QSTR_tabs), tab_indexes, tab_count);
+
+    image_draw_ttf(arg_img, arg_font ? font_data_liberation_sans : font_data_liberation_mono,
+        arg_str, arg_color, arg_x_off, arg_y_off, arg_scale, arg_align, arg_valign, arg_justify, tab_indexes, tab_count);
+    fb_free();
 
     return args[0];
 }
