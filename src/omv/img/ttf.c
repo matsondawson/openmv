@@ -536,23 +536,67 @@ bool ttf_intersect_list_next(ttf_intersect_list *intersect_list) {
     
     return false;
 }
-/*
-void ttf_grid_fit(ttf_glyph_data *glyph_data) {
-    float left_x = 0;
-    float right_x = 10000;
-    float left_max = 0;
-    float right_max = 0;
 
-    
-    for (int i = 1; i < glyph_data.numPoints; i++) {
-        if (glyph_data->coordinates[i].x == glyph_data->coordinates[i-1].x) {
-            float len = fabs(glyph_data->coordinates[i].y - glyph_data->coordinates[i-1].y);
-            if (len>left_max)
+void ttf_grid_fit(ttf_font_instance* ttf, ttf_glyph_data *glyph_data) {
+    float longest_x = 10000, max_len = 0;
+    float min_x = 10000, max_x = -10000;
+
+    for (int i = 0; i < glyph_data->numPoints; i++) {
+        float x2 = glyph_data->coordinates[i].x;
+
+        min_x = IM_MIN(x2, min_x);
+        max_x = IM_MAX(x2, max_x);
+
+        if (i > 0) {
+            float x1 = glyph_data->coordinates[i-1].x;
+
+            if (x1 == x2) {
+                float y1 = glyph_data->coordinates[i-1].y;
+                float y2 = glyph_data->coordinates[i].y;
+
+                float len = fabs(y1-y2);
+                if (len > max_len) {
+                    longest_x = x1;
+                    max_len = len;
+                }
+            }
         }
-        glyph_data.coordinates[i].x *= pixels_per_unit;
-        glyph_data.coordinates[i].y *= pixels_per_unit;
     }
-}*/
+
+    float shift_x = longest_x - floorf(longest_x);
+
+    for (int i = 0; i < glyph_data->numPoints; i++) {
+        glyph_data->coordinates[i].x -= shift_x;
+    }
+    longest_x = floorf(longest_x);
+
+    float width = max_x - min_x;
+    float x_mid = min_x + (width / 2);
+    if (longest_x > x_mid) {
+        float lhs_width = longest_x - min_x;
+        float lhs_width_ceil = longest_x - ceilf(min_x);
+
+        // if longest_x was on rhs, then shrink the lhs most point to pixel
+        float scale = lhs_width_ceil / lhs_width;
+        
+        for (int i = 0; i < glyph_data->numPoints; i++) {
+            glyph_data->coordinates[i].x = longest_x - (longest_x - glyph_data->coordinates[i].x) * scale;
+            // lx = 10, x= 5
+            // 10 - (10 - 5) = 5
+        }
+    } else {
+        // if min_x was on rhs, then expand lhs most point to pixel
+        float rhs_width = max_x - longest_x;
+        float rhs_width_floor = floorf(max_x) - longest_x;
+
+        // if longest_x was on rhs, then shrink the lhs most point to pixel
+        float scale = rhs_width_floor / rhs_width;
+        
+        for (int i = 0; i < glyph_data->numPoints; i++) {
+            glyph_data->coordinates[i].x = longest_x + (glyph_data->coordinates[i].x - longest_x) * scale;
+        }
+    }
+}
 
 ttf_point last_draw_point;
 
@@ -672,7 +716,7 @@ float ttf_draw_glyph(ttf_font_instance* ttf, image_t *img, uint16_t glyph_index,
         glyph_data.coordinates[i].y *= pixels_per_unit;
     }
 
-    //ttf_grid_fit(&glyph_data);
+    ttf_grid_fit(ttf, &glyph_data);
 
     ttf_intersect_list intersect_list;
     for (int y = yMin; y <= yMax ; y++) {
@@ -888,7 +932,6 @@ void image_draw_ttf(image_t *img, const uint8_t* font, const char* text, uint32_
                 else x_units = -(max_line_width >> 1);
             }
             else {
-                // Assume left align first.
                 x_off = x_off_i;
                 if (justify == 1) x_units = (max_line_width - line_width);
                 else if (justify == 0) x_units = ((max_line_width - line_width) >> 1);
